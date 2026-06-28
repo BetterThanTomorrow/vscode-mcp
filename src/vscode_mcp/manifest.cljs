@@ -3,7 +3,7 @@
    ["fs" :as fs]
    ["path" :as path]))
 
-(defn- satisfies-when? [when-clause settings]
+(defn satisfies-when? [when-clause settings]
   (if (or (nil? when-clause) (empty? when-clause))
     true
     ;; If the when clause matches a key in settings, use its boolean value.
@@ -11,7 +11,7 @@
     ;; For now, if settings explicitly contains the key, we use it. Otherwise true.
     (get settings when-clause true)))
 
-(defn- read-skill-frontmatter [content]
+(defn read-skill-frontmatter [content]
   (when-let [[_ frontmatter] (re-find #"(?s)^---\n(.*?)\n---" content)]
     (let [desc-match (re-find #"(?m)^description:\s*['\"]?(.*?)['\"]?\s*$" frontmatter)
           name-match (re-find #"(?m)^name:\s*['\"]?(.*?)['\"]?\s*$" frontmatter)]

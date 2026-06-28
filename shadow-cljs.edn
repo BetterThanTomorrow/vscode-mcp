@@ -1,0 +1,5 @@
+{:deps true
+ :builds
+ {:test {:target :node-test
+         :output-to "out/test.js"
+         :ns-regexp "-test$"}}}

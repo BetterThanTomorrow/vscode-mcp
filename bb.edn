@@ -1,0 +1,7 @@
+{:tasks
+ {:requires ([babashka.process :refer [shell]])
+  test
+  {:doc "Compiles and runs unit tests."
+   :task (do
+           (shell "clojure -M:shadow-cljs compile test")
+           (shell "node out/test.js"))}}}
