@@ -32,14 +32,32 @@ Add a build target to your `shadow-cljs.edn` that compiles the library's generic
 
 The server is stateless and protocol-agnostic. You must provide an `on-request` callback that receives parsed JSON-RPC requests (e.g., `initialize`, `tools/list`, `tools/call`) and returns the JSON-RPC response (or a Promise resolving to it).
 
+You can build responses manually, or use the optional `vscode-mcp.manifest` and `vscode-mcp.responses` helpers to automatically parse `package.json` for tool/resource declarations and format standard responses:
+
 ```clojure
 (require '[vscode-mcp.server :as mcp-server])
+(require '[vscode-mcp.manifest :as manifest])
+(require '[vscode-mcp.responses :as responses])
 
-(defn handle-mcp-request [{:keys [method params id] :as request}]
+(defn handle-mcp-request [{:keys [method params id] :as request} ^js context]
   (case method
-    "initialize" {:jsonrpc "2.0" :id id :result {:capabilities {:tools {}}}}
-    ;; Handle tools/list, tools/call, resources/list, etc.
-    {:jsonrpc "2.0" :id id :error {:code -32601 :message "Method not found"}}))
+    "initialize"
+    (responses/clj-response id {:capabilities {:tools {} :resources {}}
+                                :serverInfo {:name "my-server" :version "1.0.0"}})
+
+    "tools/list"
+    (responses/clj-response id {:tools (manifest/get-tools context)})
+
+    "resources/list"
+    (let [skills (manifest/get-resources context)]
+      (responses/clj-response id {:resources skills}))
+
+    "resources/read"
+    (if-let [resource (manifest/read-resource context (:uri params))]
+      (responses/clj-response id {:contents [resource]})
+      (responses/error-response id -32602 "Resource not found"))
+
+    (responses/error-response id -32601 "Method not found")))
 ```
 
 ### 4. Start the Server & Auto-Register
