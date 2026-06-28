@@ -32,7 +32,29 @@ Add a build target to your `shadow-cljs.edn` that compiles the library's generic
 
 The server is stateless and protocol-agnostic. You must provide an `on-request` callback that receives parsed JSON-RPC requests (e.g., `initialize`, `tools/list`, `tools/call`) and returns the JSON-RPC response (or a Promise resolving to it).
 
-You can build responses manually, or use the optional `vscode-mcp.manifest` and `vscode-mcp.responses` helpers to automatically parse `package.json` for tool/resource declarations and format standard responses:
+You can build responses manually, or use the optional `vscode-mcp.manifest` and `vscode-mcp.responses` helpers to automatically parse `package.json` for tool/resource declarations and format standard responses.
+
+For example, given this `package.json` declaration:
+
+```json
+{
+  "contributes": {
+    "languageModelTools": [
+      {
+        "name": "hello_world",
+        "modelDescription": "Say hello to someone",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          },
+          "required": ["name"]
+        }
+      }
+    ]
+  }
+}
+```
 
 ```clojure
 (require '[vscode-mcp.server :as mcp-server])
@@ -56,6 +78,15 @@ You can build responses manually, or use the optional `vscode-mcp.manifest` and 
     (if-let [resource (manifest/read-resource context (:uri params))]
       (responses/clj-response id {:contents [resource]})
       (responses/error-response id -32602 "Resource not found"))
+
+    "tools/call"
+    (let [tool-name (:name params)
+          args (:arguments params)]
+      (case tool-name
+        "hello_world"
+        (responses/clj-response id (str "Hello, " (:name args "World") "!"))
+        
+        (responses/error-response id -32601 (str "Unknown tool: " tool-name))))
 
     (responses/error-response id -32601 "Method not found")))
 ```
