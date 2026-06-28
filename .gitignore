@@ -1,0 +1,23 @@
+# vs code
+*.vsix
+
+# macos
+.DS_Store
+
+# Clojure
+.cpcache/
+.nrepl-port
+
+# CLJS
+.shadow-cljs/
+
+# Calva
+**/.calva/output-window/output.calva-repl
+.lsp/.cache
+.clj-kondo/.cache
+
+# Portal
+**/.portal/vs-code.edn
+
+# Temp
+.tmp/
