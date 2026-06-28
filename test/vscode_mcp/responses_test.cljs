@@ -37,3 +37,10 @@
             :error {:code -32601
                     :message "Method not found"}}
            (sut/error-response 3 -32601 "Method not found")))))
+
+(deftest success-response-test
+  (testing "returns standard JSON-RPC success format with arbitrary result map"
+    (is (= {:jsonrpc "2.0"
+            :id 4
+            :result {:tools []}}
+           (sut/success-response 4 {:tools []})))))

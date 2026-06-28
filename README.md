@@ -65,19 +65,20 @@ For example, given this `package.json` declaration:
 (defn handle-mcp-request [{:keys [method params id] :as request} ^js context]
   (case method
     "initialize"
-    (responses/clj-response id {:capabilities {:tools {} :resources {}}
-                                :serverInfo {:name "my-server" :version "1.0.0"}})
+    (responses/success-response id {:protocolVersion "2024-11-05"
+                                    :capabilities {:tools {} :resources {}}
+                                    :serverInfo {:name "my-server" :version "1.0.0"}})
 
     "tools/list"
-    (responses/clj-response id {:tools (manifest/get-tools context)})
+    (responses/success-response id {:tools (manifest/get-tools context)})
 
     "resources/list"
     (let [skills (manifest/get-resources context)]
-      (responses/clj-response id {:resources skills}))
+      (responses/success-response id {:resources skills}))
 
     "resources/read"
     (if-let [resource (manifest/read-resource context (:uri params))]
-      (responses/clj-response id {:contents [resource]})
+      (responses/success-response id {:contents [resource]})
       (responses/error-response id -32602 "Resource not found"))
 
     "tools/call"
@@ -85,7 +86,7 @@ For example, given this `package.json` declaration:
           args (:arguments params)]
       (case tool-name
         "hello_world"
-        (responses/clj-response id (str "Hello, " (:name args "World") "!"))
+        (responses/success-response id {:content [{:type "text" :text (str "Hello, " (:name args "World") "!")}]})
 
         (responses/error-response id -32601 (str "Unknown tool: " tool-name))))
 
@@ -101,15 +102,15 @@ During your extension's `activate` phase, start the server and register it with 
 (require '["path" :as path])
 
 (defn activate [^js context]
-  (let [wrapper-path (path/join (.-extensionPath context) "dist" "mcp-server.js")]
+  (let [port-file (path/join (.-extensionPath context) "mcp-port.txt")]
     (-> (mcp-server/start-server!+ {:on-request handle-mcp-request
                                     :port 0}) ;; Use 0 to assign a random available port
-        (.then (fn [server-info]
+        (.then (fn [_server-info]
                  (mcp-cursor/register-and-reload-mcp-client!+
+                   "my-extension-mcp"
                    context
-                   (assoc server-info
-                          :server/name "my-extension-mcp"
-                          :server/wrapper-path wrapper-path)))))))
+                   "dist/mcp-server.js"
+                   (vscode/Uri.file port-file)))))))
 ```
 
 When stopping your extension in `deactivate`, gracefully shut down the server:

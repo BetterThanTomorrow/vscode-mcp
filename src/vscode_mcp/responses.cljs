@@ -23,6 +23,14 @@
    :id id
    :result {:content content}})
 
+(defn success-response
+  "Standard JSON-RPC success response with a generic result object.
+   Used for protocol methods like initialize, tools/list, and resources/list."
+  [id result]
+  {:jsonrpc "2.0"
+   :id id
+   :result result})
+
 (defn error-response
   "JSON-RPC error response."
   [id code message]
