@@ -41,6 +41,23 @@
       (js/console.error "[MCP Manifest] Error getting tools:" (.-message e))
       [])))
 
+(defn- read-skill-resource [extension-path skill]
+  (let [skill-path (.-path skill)
+        abs-path (path/join extension-path skill-path)]
+    (try
+      (let [content (fs/readFileSync abs-path "utf8")
+            frontmatter (read-skill-frontmatter content)
+            skill-name (or (:name frontmatter)
+                           (path/basename (path/dirname abs-path)))]
+        {:uri (str "skill://" skill-name)
+         :name skill-name
+         :description (or (:description frontmatter) "No description provided.")
+         :mimeType "text/markdown"
+         :skill-path abs-path})
+      (catch js/Error e
+        (js/console.warn "[MCP Manifest] Could not read skill at" abs-path ":" (.-message e))
+        nil))))
+
 (defn get-resources
   "Reads `contributes.chatSkills` from the extension's package.json,
    reads their frontmatter to extract `name` and `description`,
@@ -57,22 +74,7 @@
              (filter (fn [^js skill]
                        (satisfies-when? (.-when skill) settings)))
              (keep (fn [^js skill]
-                     (let [skill-path (.-path skill)
-                           abs-path (path/join extension-path skill-path)]
-                       (try
-                         (let [content (fs/readFileSync abs-path "utf8")
-                               frontmatter (read-skill-frontmatter content)
-                               skill-name (or (:name frontmatter)
-                                              ;; Fallback to directory name if name isn't in frontmatter
-                                              (path/basename (path/dirname abs-path)))]
-                           {:uri (str "skill://" skill-name)
-                            :name skill-name
-                            :description (or (:description frontmatter) "No description provided.")
-                            :mimeType "text/markdown"
-                            :skill-path abs-path}) ; Keep path for read-resource mapping
-                         (catch js/Error e
-                           (js/console.warn "[MCP Manifest] Could not read skill at" abs-path ":" (.-message e))
-                           nil)))))
+                     (read-skill-resource extension-path skill)))
              vec)))
     (catch js/Error e
       (js/console.error "[MCP Manifest] Error getting resources:" (.-message e))
