@@ -191,7 +191,7 @@
           (p/do!
            (vscode/workspace.fs.createDirectory port-file-dir)
            (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str port)))
-           (do-log runtime-options :info "Wrote port file:" (.-fsPath port-file-uri))
+           (do-log runtime-options :info "Wrote port file:" (.-fsPath ^js port-file-uri))
            (merge server-info+ runtime-options {:server/port-file-uri port-file-uri})))
         (merge server-info+ runtime-options)))))
 
