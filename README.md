@@ -9,7 +9,7 @@ The libray works by:
 1. Spawning a local TCP socket server inside the Extension Host.
 2. Providing a pure Node.js `stdio` wrapper script that clients run. The wrapper relays streams to the TCP socket. This is because MCP clients expect to spawn an executable and communicate over standard input/output streams (`stdio`), but VS Code extensions live inside an already started Extension Host.
 3. Giving you `manifest` helpers to automatically expose your existing `package.json` Copilot tool and skill declarations as MCP tools and resources.
-4. Automatically registering the server configuration with Cursor using its undocumented `vscode.cursor.mcp.registerServer` API. (More zero-config integrations for other VS Code-hosted harnesses are planned).
+4. Automatically registering the server configuration with Cursor using its [`vscode.cursor.mcp.registerServer`](https://cursor.com/docs/extension-api) API. (More zero-config integrations for other VS Code-hosted harnesses TBD).
 
 ## Usage
 
@@ -125,3 +125,10 @@ When stopping your extension in `deactivate`, gracefully shut down the server:
 This library is purpose-built to **minimize boilerplate for Copilot-native extensions** that also want to cater to other AI harnesses (like Cursor) via MCP. If you are not building an extension that provides Copilot `languageModelTools` and `chatSkills`, this library is likely not for you.
 
 `vscode-mcp` is deeply environment-suited. It is used by [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver), and [Joyride](https://github.com/BetterThanTomorrow/joyride), and may or may not work for your use case.
+
+## Limitations & Shortcuts
+
+To keep the library dependency-free and lightweight, it takes a few deliberate shortcuts:
+
+1. **Naive YAML Frontmatter Parsing**: `vscode-mcp.manifest` parses Markdown frontmatter using a simple regex-based line parser rather than a full YAML parser. It correctly extracts top-level key/value pairs (including multi-line strings), but does not support advanced YAML features like lists, nested objects, or anchors.
+2. **Strict JSON Schema Extraction**: When extracting tools from `package.json`'s `languageModelTools`, `vscode-mcp.manifest` filters the `inputSchema` to only include the `:type`, `:properties`, and `:required` keys at the root level. Advanced root-level JSON Schema features (like `additionalProperties` or `anyOf`) are silently dropped.
