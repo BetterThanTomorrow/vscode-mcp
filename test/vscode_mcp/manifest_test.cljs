@@ -41,4 +41,10 @@
     (let [content "---\nname: my-skill\ndescription: This is a\n multi-line\n description.\n---\nBody"]
       (is (= {:name "my-skill"
               :description "This is a\n multi-line\n description."}
+             (sut/read-skill-frontmatter content)))))
+
+  (testing "handles multi-line values containing colons"
+    (let [content "---\nname: joyride\ndescription: >-\n  Joyride core\n  Use when: working with things.\n---\nBody"]
+      (is (= {:name "joyride"
+              :description ">-\n  Joyride core\n  Use when: working with things."}
              (sut/read-skill-frontmatter content))))))

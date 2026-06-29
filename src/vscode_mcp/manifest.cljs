@@ -20,7 +20,7 @@
   (let [lines (string/split-lines frontmatter-text)
         {:keys [acc current-key current-value]}
         (reduce (fn [{:keys [acc current-key current-value] :as state} line]
-                  (if-let [key-match (re-find #"^([^:]+):\s*(.*)$" line)]
+                  (if-let [key-match (re-find #"^([a-zA-Z0-9_-]+):\s*(.*)$" line)]
                     (let [new-key (keyword (string/trim (second key-match)))
                           new-value (string/trim (nth key-match 2))
                           new-acc (if current-key
