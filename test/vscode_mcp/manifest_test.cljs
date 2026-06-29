@@ -28,11 +28,17 @@
               :description nil}
              (sut/read-skill-frontmatter content)))))
 
-  (testing "handles quotes in values"
+  (testing "preserves quotes in values"
     (let [content "---\nname: 'quoted-skill'\ndescription: \"Quoted desc\"\n---\nBody"]
-      (is (= {:name "quoted-skill"
-              :description "Quoted desc"}
+      (is (= {:name "'quoted-skill'"
+              :description "\"Quoted desc\""}
              (sut/read-skill-frontmatter content)))))
 
   (testing "returns nil if no frontmatter"
-    (is (nil? (sut/read-skill-frontmatter "# Just a body")))))
+    (is (nil? (sut/read-skill-frontmatter "# Just a body"))))
+
+  (testing "handles multi-line values"
+    (let [content "---\nname: my-skill\ndescription: This is a\n multi-line\n description.\n---\nBody"]
+      (is (= {:name "my-skill"
+              :description "This is a\n multi-line\n description."}
+             (sut/read-skill-frontmatter content))))))

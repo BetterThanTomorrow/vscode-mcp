@@ -1,7 +1,8 @@
 (ns vscode-mcp.manifest
   (:require
    ["fs" :as fs]
-   ["path" :as path]))
+   ["path" :as path]
+   [clojure.string :as string]))
 
 (defn satisfies-when? [when-clause settings]
   (if (or (nil? when-clause) (empty? when-clause))
@@ -11,12 +12,41 @@
     ;; For now, if settings explicitly contains the key, we use it. Otherwise true.
     (get settings when-clause true)))
 
+(defn parse-frontmatter
+  "Parses frontmatter text (lines between --- delimiters) into a map.
+   Handles multi-line values by concatenating continuation lines.
+   Keys are converted to keywords, values are kept as raw strings but trimmed overall."
+  [frontmatter-text]
+  (let [lines (string/split-lines frontmatter-text)
+        {:keys [acc current-key current-value]}
+        (reduce (fn [{:keys [acc current-key current-value] :as state} line]
+                  (if-let [key-match (re-find #"^([^:]+):\s*(.*)$" line)]
+                    (let [new-key (keyword (string/trim (second key-match)))
+                          new-value (string/trim (nth key-match 2))
+                          new-acc (if current-key
+                                    (assoc acc current-key (string/trim current-value))
+                                    acc)]
+                      {:acc new-acc
+                       :current-key new-key
+                       :current-value new-value})
+                    (if current-key
+                      {:acc acc
+                       :current-key current-key
+                       :current-value (str current-value "\n" line)}
+                      state)))
+                {:acc {}
+                 :current-key nil
+                 :current-value ""}
+                lines)]
+    (if current-key
+      (assoc acc current-key (string/trim current-value))
+      acc)))
+
 (defn read-skill-frontmatter [content]
-  (when-let [[_ frontmatter] (re-find #"(?s)^---\n(.*?)\n---" content)]
-    (let [desc-match (re-find #"(?m)^description:\s*['\"]?(.*?)['\"]?\s*$" frontmatter)
-          name-match (re-find #"(?m)^name:\s*['\"]?(.*?)['\"]?\s*$" frontmatter)]
-      {:description (when desc-match (second desc-match))
-       :name (when name-match (second name-match))})))
+  (when-let [[_ frontmatter-text] (re-find #"(?s)^---\s*\n(.*?)\n---" content)]
+    (let [parsed (parse-frontmatter frontmatter-text)]
+      {:description (:description parsed)
+       :name (:name parsed)})))
 
 (defn get-tools
   "Reads `contributes.languageModelTools` from the extension's package.json
