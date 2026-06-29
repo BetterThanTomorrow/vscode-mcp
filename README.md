@@ -90,7 +90,8 @@ For example, given this `package.json` declaration:
 
         (responses/error-response id -32601 (str "Unknown tool: " tool-name))))
 
-    (responses/error-response id -32601 "Method not found")))
+    (when id
+      (responses/error-response id -32601 "Method not found"))))
 ```
 
 ### 4. Start the Server & Auto-Register
