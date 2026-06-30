@@ -48,7 +48,7 @@
       acc)))
 
 (defn read-skill-frontmatter [content]
-  (when-let [[_ frontmatter-text] (re-find #"(?s)^---\s*\n(.*?)\n---" content)]
+  (when-let [[_ frontmatter-text] (re-find #"^---\s*\n([\s\S]*?)\n---" content)]
     (let [parsed (parse-frontmatter frontmatter-text)]
       {:description (:description parsed)
        :name (:name parsed)})))
