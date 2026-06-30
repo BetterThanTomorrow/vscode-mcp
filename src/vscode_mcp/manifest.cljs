@@ -12,6 +12,11 @@
     ;; For now, if settings explicitly contains the key, we use it. Otherwise true.
     (get settings when-clause true)))
 
+(defn- clean-yaml-value [v]
+  (-> v
+      string/trim
+      (string/replace #"(?s)^[>|]-?\s*\n\s*" "")))
+
 (defn parse-frontmatter
   "Parses frontmatter text (lines between --- delimiters) into a map.
    Handles multi-line values by concatenating continuation lines.
@@ -24,7 +29,7 @@
                     (let [new-key (keyword (string/trim (second key-match)))
                           new-value (string/trim (nth key-match 2))
                           new-acc (if current-key
-                                    (assoc acc current-key (string/trim current-value))
+                                    (assoc acc current-key (clean-yaml-value current-value))
                                     acc)]
                       {:acc new-acc
                        :current-key new-key
@@ -39,7 +44,7 @@
                  :current-value ""}
                 lines)]
     (if current-key
-      (assoc acc current-key (string/trim current-value))
+      (assoc acc current-key (clean-yaml-value current-value))
       acc)))
 
 (defn read-skill-frontmatter [content]

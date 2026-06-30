@@ -50,7 +50,7 @@
   (testing "handles multi-line values containing colons"
     (let [content "---\nname: joyride\ndescription: >-\n  Joyride core\n  Use when: working with things.\n---\nBody"]
       (is (= {:name "joyride"
-              :description ">-\n  Joyride core\n  Use when: working with things."}
+              :description "Joyride core\n  Use when: working with things."}
              (sut/read-skill-frontmatter content))
           "does not split continuation lines on colons"))))
 
