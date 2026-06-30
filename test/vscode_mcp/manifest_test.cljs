@@ -23,6 +23,13 @@
              (sut/read-skill-frontmatter content))
           "returns parsed map of name and description")))
 
+  (testing "parses CRLF frontmatter fields separately"
+    (let [content "---\r\nname: backseat-driver\r\ndescription: Effective use of Backseat Driver\r\n---\r\nBody"]
+      (is (= {:name "backseat-driver"
+              :description "Effective use of Backseat Driver"}
+             (sut/read-skill-frontmatter content))
+          "does not fold the description line into the name")))
+
   (testing "handles missing fields"
     (let [content "---\nname: my-skill\n---\nBody"]
       (is (= {:name "my-skill"
@@ -52,7 +59,14 @@
       (is (= {:name "joyride"
               :description "Joyride core\n  Use when: working with things."}
              (sut/read-skill-frontmatter content))
-          "does not split continuation lines on colons"))))
+          "does not split continuation lines on colons")))
+
+  (testing "handles CRLF folded scalar marker"
+    (let [content "---\r\nname: joyride\r\ndescription: >-\r\n  Joyride core\r\n  Use when: working with things.\r\n---\r\nBody"]
+      (is (= {:name "joyride"
+              :description "Joyride core\n  Use when: working with things."}
+             (sut/read-skill-frontmatter content))
+          "strips the folded scalar marker with CRLF line endings"))))
 
 (deftest build-server-instructions-test
   (testing "returns nil for empty inputs"

@@ -15,17 +15,17 @@
 (defn- clean-yaml-value [v]
   (-> v
       string/trim
-      (string/replace #"(?s)^[>|]-?\s*\n\s*" "")))
+      (string/replace #"^[>|]-?[ \t]*(?:\r\n|\n|\r)[ \t]*" "")))
 
 (defn parse-frontmatter
   "Parses frontmatter text (lines between --- delimiters) into a map.
    Handles multi-line values by concatenating continuation lines.
    Keys are converted to keywords, values are kept as raw strings but trimmed overall."
   [frontmatter-text]
-  (let [lines (string/split-lines frontmatter-text)
+  (let [lines (string/split frontmatter-text #"\r\n|\n|\r")
         {:keys [acc current-key current-value]}
         (reduce (fn [{:keys [acc current-key current-value] :as state} line]
-                  (if-let [key-match (re-find #"^([a-zA-Z0-9_-]+):\s*(.*)$" line)]
+                  (if-let [key-match (re-find #"^([a-zA-Z0-9_-]+):[ \t]*(.*)$" line)]
                     (let [new-key (keyword (string/trim (second key-match)))
                           new-value (string/trim (nth key-match 2))
                           new-acc (if current-key
