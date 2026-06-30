@@ -54,7 +54,7 @@
    `settings` is an optional map of {when-clause boolean} to filter tools."
   [^js context & [{:keys [settings] :or {settings {}}}]]
   (try
-    (let [^js package-json (-> context .-extension .-packageJSON)
+    (let [^js package-json (some-> context .-extension .-packageJSON)
           tools (some-> package-json .-contributes .-languageModelTools)]
       (if-not tools
         []
@@ -95,7 +95,7 @@
    `settings` is an optional map of {when-clause boolean} to filter skills."
   [^js context & [{:keys [settings] :or {settings {}}}]]
   (try
-    (let [^js package-json (-> context .-extension .-packageJSON)
+    (let [^js package-json (some-> context .-extension .-packageJSON)
           skills (some-> package-json .-contributes .-chatSkills)
           extension-path (.-extensionPath context)]
       (if-not skills
@@ -141,3 +141,31 @@
     (let [parts (remove string/blank? [base-text tools-text resources-text])]
       (when (seq parts)
         (string/join "\n\n" parts)))))
+
+(defn build-initialize-result
+  "Generates an MCP `initialize` result map.
+   Extracts `name` and `version` from the extension's package.json, which can be overridden via `opts`.
+   Also gathers available tools, resources, and generates `serverUseInstructions`.
+   `opts` may include:
+   - `:name`: Override the server name.
+   - `:version`: Override the server version.
+   - `:base-text`: Prepend custom text to the generated server instructions.
+   - `:settings`: Map of {when-clause boolean} to filter tools and resources."
+  [^js context & [opts]]
+  (let [package-json (some-> context .-extension .-packageJSON)
+        default-name (some-> package-json .-name)
+        default-version (some-> package-json .-version)
+        server-name (or (:name opts) default-name "vscode-mcp-server")
+        server-version (or (:version opts) default-version "0.0.0")
+        settings (:settings opts)
+        tools (get-tools context {:settings settings})
+        resources (get-resources context {:settings settings})
+        instructions (build-server-instructions {:base-text (:base-text opts)
+                                                 :tools tools
+                                                 :resources resources})]
+    {:protocolVersion "2024-11-05"
+     :capabilities {:tools {}
+                    :resources {}}
+     :instructions instructions
+     :serverInfo {:name server-name
+                  :version server-version}}))
