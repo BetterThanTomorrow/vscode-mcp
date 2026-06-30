@@ -48,3 +48,28 @@
       (is (= {:name "joyride"
               :description ">-\n  Joyride core\n  Use when: working with things."}
              (sut/read-skill-frontmatter content))))))
+
+(deftest build-server-instructions-test
+  (testing "returns nil for empty inputs"
+    (is (nil? (sut/build-server-instructions {}))))
+
+  (testing "handles only base text"
+    (is (= "Just base text" (sut/build-server-instructions {:base-text "Just base text"}))))
+
+  (testing "handles tools"
+    (let [tools [{:name "my-tool" :description "Tool description"}]]
+      (is (= "Available tools:\n- **`my-tool`**: Tool description"
+             (sut/build-server-instructions {:tools tools})))))
+
+  (testing "handles resources"
+    (let [resources [{:name "my-skill" :description "Skill description"}]]
+      (is (= "Specialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n- **my-skill**: Skill description"
+             (sut/build-server-instructions {:resources resources})))))
+
+  (testing "handles everything combined"
+    (let [tools [{:name "my-tool" :description "Tool description"}]
+          resources [{:name "my-skill" :description "Skill description"}]]
+      (is (= "Base text\n\nAvailable tools:\n- **`my-tool`**: Tool description\n\nSpecialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n- **my-skill**: Skill description"
+             (sut/build-server-instructions {:base-text "Base text"
+                                             :tools tools
+                                             :resources resources}))))))

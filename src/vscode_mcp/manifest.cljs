@@ -123,3 +123,21 @@
         (catch js/Error e
           (js/console.error "[MCP Manifest] Error reading resource" uri ":" (.-message e))
           nil)))))
+
+(defn build-server-instructions
+  "Generates an instructional string for MCP clients based on available tools and resources.
+   Optional `:base-text` can be provided to prepend custom instructions."
+  [{:keys [base-text tools resources]}]
+  (let [tools-text (when (seq tools)
+                     (str "Available tools:\n"
+                          (string/join "\n" (map (fn [{:keys [name description]}]
+                                                   (str "- **`" name "`**: " description))
+                                                 tools))))
+        resources-text (when (seq resources)
+                         (str "Specialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n"
+                              (string/join "\n" (map (fn [{:keys [name description]}]
+                                                       (str "- **" name "**: " description))
+                                                     resources))))]
+    (let [parts (remove string/blank? [base-text tools-text resources-text])]
+      (when (seq parts)
+        (string/join "\n\n" parts)))))
