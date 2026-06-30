@@ -5,66 +5,73 @@
 
 (deftest satisfies-when?-test
   (testing "empty when-clause satisfies"
-    (is (true? (sut/satisfies-when? "" {})))
-    (is (true? (sut/satisfies-when? nil {}))))
+    (is (true? (sut/satisfies-when? "" {})) "returns true for empty string")
+    (is (true? (sut/satisfies-when? nil {})) "returns true for nil"))
 
   (testing "matches key in settings"
-    (is (true? (sut/satisfies-when? "config.someSetting" {"config.someSetting" true})))
-    (is (false? (sut/satisfies-when? "config.someSetting" {"config.someSetting" false}))))
+    (is (true? (sut/satisfies-when? "config.someSetting" {"config.someSetting" true})) "returns true when setting is true")
+    (is (false? (sut/satisfies-when? "config.someSetting" {"config.someSetting" false})) "returns false when setting is false"))
 
   (testing "defaults to true if setting is missing"
-    (is (true? (sut/satisfies-when? "config.missingSetting" {})))))
+    (is (true? (sut/satisfies-when? "config.missingSetting" {})) "returns true when setting is absent")))
 
 (deftest read-skill-frontmatter-test
   (testing "parses valid frontmatter"
     (let [content "---\nname: my-skill\ndescription: A great skill\n---\n\n# Body here"]
       (is (= {:name "my-skill"
               :description "A great skill"}
-             (sut/read-skill-frontmatter content)))))
+             (sut/read-skill-frontmatter content))
+          "returns parsed map of name and description")))
 
   (testing "handles missing fields"
     (let [content "---\nname: my-skill\n---\nBody"]
       (is (= {:name "my-skill"
               :description nil}
-             (sut/read-skill-frontmatter content)))))
+             (sut/read-skill-frontmatter content))
+          "returns nil for missing description")))
 
   (testing "preserves quotes in values"
     (let [content "---\nname: 'quoted-skill'\ndescription: \"Quoted desc\"\n---\nBody"]
       (is (= {:name "'quoted-skill'"
               :description "\"Quoted desc\""}
-             (sut/read-skill-frontmatter content)))))
+             (sut/read-skill-frontmatter content))
+          "returns values with quotes intact")))
 
   (testing "returns nil if no frontmatter"
-    (is (nil? (sut/read-skill-frontmatter "# Just a body"))))
+    (is (nil? (sut/read-skill-frontmatter "# Just a body")) "returns nil when frontmatter block is absent"))
 
   (testing "handles multi-line values"
     (let [content "---\nname: my-skill\ndescription: This is a\n multi-line\n description.\n---\nBody"]
       (is (= {:name "my-skill"
               :description "This is a\n multi-line\n description."}
-             (sut/read-skill-frontmatter content)))))
+             (sut/read-skill-frontmatter content))
+          "returns concatenated multi-line description")))
 
   (testing "handles multi-line values containing colons"
     (let [content "---\nname: joyride\ndescription: >-\n  Joyride core\n  Use when: working with things.\n---\nBody"]
       (is (= {:name "joyride"
               :description ">-\n  Joyride core\n  Use when: working with things."}
-             (sut/read-skill-frontmatter content))))))
+             (sut/read-skill-frontmatter content))
+          "does not split continuation lines on colons"))))
 
 (deftest build-server-instructions-test
   (testing "returns nil for empty inputs"
-    (is (nil? (sut/build-server-instructions {}))))
+    (is (nil? (sut/build-server-instructions {})) "returns nil when no inputs provided"))
 
   (testing "handles only base text"
-    (is (= "Just base text" (sut/build-server-instructions {:base-text "Just base text"}))))
+    (is (= "Just base text" (sut/build-server-instructions {:base-text "Just base text"})) "returns base text alone"))
 
   (testing "handles tools"
     (let [tools [{:name "my-tool" :description "Tool description"}]]
       (is (= "Available tools:\n- **`my-tool`**: Tool description"
-             (sut/build-server-instructions {:tools tools})))))
+             (sut/build-server-instructions {:tools tools}))
+          "formats tools block correctly")))
 
   (testing "handles resources"
     (let [resources [{:name "my-skill" :description "Skill description"}]]
       (is (= "Specialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n- **my-skill**: Skill description"
-             (sut/build-server-instructions {:resources resources})))))
+             (sut/build-server-instructions {:resources resources}))
+          "formats resources block correctly")))
 
   (testing "handles everything combined"
     (let [tools [{:name "my-tool" :description "Tool description"}]
@@ -72,4 +79,5 @@
       (is (= "Base text\n\nAvailable tools:\n- **`my-tool`**: Tool description\n\nSpecialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n- **my-skill**: Skill description"
              (sut/build-server-instructions {:base-text "Base text"
                                              :tools tools
-                                             :resources resources}))))))
+                                             :resources resources}))
+          "combines base-text, tools, and resources with double newlines"))))
