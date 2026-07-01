@@ -15,6 +15,26 @@
   (testing "defaults to true if setting is missing"
     (is (true? (sut/satisfies-when? "config.missingSetting" {})) "returns true when setting is absent")))
 
+(defn- mock-context [tools]
+  #js {:extension #js {:packageJSON #js {:contributes #js {:languageModelTools tools}}}})
+
+(deftest tool-call-allowed?-test
+  (testing "no when clause"
+    (let [ctx (mock-context #js [#js {:name "always-tool"}])]
+      (is (= :allowed (sut/tool-call-allowed? ctx "always-tool")))))
+
+  (testing "when setting true"
+    (let [ctx (mock-context #js [#js {:name "gated-tool" :when "config.enabled"}])]
+      (is (= :allowed (sut/tool-call-allowed? ctx "gated-tool" {:settings {"config.enabled" true}})))))
+
+  (testing "when setting false"
+    (let [ctx (mock-context #js [#js {:name "gated-tool" :when "config.enabled"}])]
+      (is (= :disabled (sut/tool-call-allowed? ctx "gated-tool" {:settings {"config.enabled" false}})))))
+
+  (testing "unknown tool"
+    (let [ctx (mock-context #js [#js {:name "known-tool"}])]
+      (is (= :unknown (sut/tool-call-allowed? ctx "missing-tool"))))))
+
 (deftest read-skill-frontmatter-test
   (testing "parses valid frontmatter"
     (let [content "---\nname: my-skill\ndescription: A great skill\n---\n\n# Body here"]

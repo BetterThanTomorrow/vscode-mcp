@@ -17,8 +17,10 @@
         (p/catch (fn [_] false)))
     (p/resolved false)))
 
-(defn reload-mcp-client!+ [^js extension-context server-name]
-  (let [identifier (config/mcp-client-identifier extension-context server-name)]
+(defn reload-mcp-client!+
+  [{:vscode/keys [extension-context] :cursor/keys [server-name]}]
+  (let [identifier (config/mcp-client-identifier {:vscode/extension-context extension-context
+                                                    :cursor/server-name server-name})]
     (cond
       (not identifier)
       (p/resolved {:ok false :reason :missing-extension-context})
@@ -30,8 +32,9 @@
           (p/then (fn [result] {:ok true :identifier identifier :result result}))
           (p/catch (fn [err] {:ok false :identifier identifier :error err}))))))
 
-(defn register-mcp-server!+ [server-name ^js extension-context script-relative-path ^js port-file-uri]
-  (p/let [{:keys [ok config reason]} (config/build-cursor-mcp-registration-config server-name extension-context script-relative-path port-file-uri)
+(defn register-mcp-server!+ [options]
+  (p/let [{:keys [ok config reason]} (config/build-cursor-mcp-registration-config options)
+          port-file-uri (:server/port-file-uri options)
           ready? (port-file-ready?+ port-file-uri)]
     (cond
       (not ok)
@@ -48,14 +51,15 @@
           (p/then (fn [_] {:ok true :config config}))
           (p/catch (fn [err] {:ok false :error err :config config}))))))
 
-(defn register-and-reload-mcp-client!+ [server-name ^js extension-context script-relative-path ^js port-file-uri]
-  (p/let [register-result (register-mcp-server!+ server-name extension-context script-relative-path port-file-uri)]
+(defn register-and-reload-mcp-client!+ [options]
+  (p/let [register-result (register-mcp-server!+ options)]
     (if-not (:ok register-result)
       register-result
-      (p/let [reload-result (reload-mcp-client!+ extension-context server-name)]
+      (p/let [reload-result (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
+                                                   :cursor/server-name (:cursor/server-name options)})]
         (assoc register-result :reload reload-result)))))
 
-(defn unregister-mcp-server!+ [server-name]
+(defn unregister-mcp-server!+ [{:cursor/keys [server-name]}]
   (cond
     (not (cursor-mcp-available?))
     (p/resolved {:ok false :reason :cursor-api-unavailable})

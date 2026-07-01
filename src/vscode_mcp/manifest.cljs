@@ -12,6 +12,21 @@
     ;; For now, if settings explicitly contains the key, we use it. Otherwise true.
     (get settings when-clause true)))
 
+(defn- find-tool-by-name [^js tools tool-name]
+  (when tools
+    (some #(when (= (.-name %) tool-name) %) tools)))
+
+(defn tool-call-allowed?
+  "Returns :allowed, :disabled, or :unknown for a tool name against manifest when clauses."
+  [^js context tool-name & [{:keys [settings] :or {settings {}}}]]
+  (let [^js package-json (some-> context .-extension .-packageJSON)
+        tools (some-> package-json .-contributes .-languageModelTools)
+        tool (find-tool-by-name tools tool-name)]
+    (cond
+      (nil? tool) :unknown
+      (satisfies-when? (.-when ^js tool) settings) :allowed
+      :else :disabled)))
+
 (defn- clean-yaml-value [v]
   (-> v
       string/trim

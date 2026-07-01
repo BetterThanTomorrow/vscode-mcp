@@ -4,9 +4,17 @@
    ["net" :as net]
    ["vscode" :as vscode]
    [clojure.string :as string]
-   [promesa.core :as p]))
+   [promesa.core :as p]
+   [vscode-mcp.server-info :as server-info]))
 
-(defn- do-log [{:keys [on-log]} level & args]
+(defn- require-server-host!
+  "Returns host string or throws if :server/host is missing or blank."
+  [host]
+  (if (or (nil? host) (string/blank? (str host)))
+    (throw (js/Error. ":server/host is required and must not be blank"))
+    (str host)))
+
+(defn- do-log [{:mcp/keys [on-log]} level & args]
   (when on-log
     (apply on-log level args)))
 
@@ -63,7 +71,7 @@
 (defn- create-error-response [id code message]
   {:jsonrpc "2.0" :id id :error {:code code :message message}})
 
-(defn- process-segment [{:keys [on-request] :as options} segment]
+(defn- process-segment [{:mcp/keys [on-request] :as options} segment]
   (let [request-json (string/trim segment)]
     (if (string/blank? request-json)
       (do
@@ -101,7 +109,7 @@
         (str remote-address ":" remote-port)))
     (catch :default _ nil)))
 
-(defn- setup-socket-handlers! [{:keys [active-sockets socket-id-counter] :as options} ^js socket]
+(defn- setup-socket-handlers! [{:server/keys [active-sockets socket-id-counter] :as options} ^js socket]
   (let [socket-id (swap! socket-id-counter inc)
         peer-label (or (socket-peer-label socket) "unknown")]
     (.setEncoding socket "utf8")
@@ -135,7 +143,7 @@
                 (fn [err]
                   (do-log options :error "[Server] Socket error:" socket-id peer-label err)))))))
 
-(defn- start-socket-server!+ [{:keys [port] :as options}]
+(defn- start-socket-server!+ [{:server/keys [request-port host] :as options}]
   (p/create
    (fn [resolve-fn reject]
      (try
@@ -143,17 +151,18 @@
                      net
                      (fn [^js socket]
                        (setup-socket-handlers! options socket)))
-             listen-port (or port 0)]
-         (.listen server listen-port
+             listen-port (or request-port 0)
+             listen-host (require-server-host! host)]
+         (.listen server listen-port listen-host
                   (fn []
                     (let [address (.address server)
                           assigned-port (.-port address)
                           falling-back? (and (not= 0 listen-port)
                                              (not= listen-port assigned-port))]
                       (do-log options :info "[Server] Socket server listening on port" assigned-port)
-                      (resolve-fn (merge {:server/instance server :server/port assigned-port}
+                      (resolve-fn (merge {:server/instance server :server/assigned-port assigned-port}
                                          (when falling-back?
-                                           {:server/port-note (str "NOTE: Port " port " was already in use.")}))))))
+                                           {:server/port-note (str "NOTE: Port " request-port " was already in use.")}))))))
          (.on server "error"
               (fn [err]
                 (if (and (= (.-code err) "EADDRINUSE")
@@ -161,7 +170,7 @@
                   (do
                     (do-log options :warn (str "[Server] Port " listen-port " already in use, falling back to an available port"))
                     ;; Try again with port 0 (available port)
-                    (.listen server 0))
+                    (.listen server 0 listen-host))
                   (do
                     (do-log options :error "[Server] Server creation error:" err)
                     (reject err))))))
@@ -169,7 +178,7 @@
          (do-log options :error "[Server] Error creating server:" (.-message e))
          (reject e))))))
 
-(defn send-notification-params [{:keys [active-sockets] :as options} notification]
+(defn send-notification-params [{:server/keys [active-sockets] :as options} notification]
   (let [sockets @active-sockets]
     (when (seq sockets)
       (doseq [socket sockets]
@@ -181,21 +190,26 @@
 (defn start-server!+
   "Creates a socket server and writes the port to a file if port-file-uri is provided.
    Returns a promise that resolves to a map with server info when the MCP server starts successfully."
-  [{:keys [port-file-uri] :as options}]
-  (let [runtime-options (merge options {:active-sockets (atom #{})
-                                        :socket-id-counter (atom 0)})]
+  [{:server/keys [host port-file-uri] :as options}]
+  (let [server-host (require-server-host! host)
+        runtime-options (merge options
+                               {:server/host server-host
+                                :server/active-sockets (atom #{})
+                                :server/socket-id-counter (atom 0)})]
     (p/let [server-info+ (start-socket-server!+ runtime-options)
-            port (:server/port server-info+)]
+            assigned-port (:server/assigned-port server-info+)]
       (if port-file-uri
         (let [port-file-dir (vscode/Uri.joinPath port-file-uri "..")]
           (p/do!
            (vscode/workspace.fs.createDirectory port-file-dir)
-           (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str port)))
+           (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str assigned-port)))
            (do-log runtime-options :info "Wrote port file:" (.-fsPath ^js port-file-uri))
-           (merge server-info+ runtime-options {:server/port-file-uri port-file-uri})))
-        (merge server-info+ runtime-options)))))
+           (server-info/merge-started-server-info runtime-options server-info+
+                                                  {:server/host server-host :server/port-file-uri port-file-uri})))
+        (server-info/merge-started-server-info runtime-options server-info+
+                                               {:server/host server-host})))))
 
-(defn- close-server!+ [{:keys [active-sockets server/instance] :as options}]
+(defn- close-server!+ [{:server/keys [active-sockets instance] :as options}]
   (do-log options :info "Stopping socket server...")
   (-> (p/create
        (fn [resolve-fn reject]
@@ -223,7 +237,7 @@
 (defn stop-server!+
   "Stops the MCP server and removes the port file.
    Returns a promise that resolves to a boolean indicating success."
-  [{:keys [server/instance server/port-file-uri] :as options}]
+  [{:server/keys [instance port-file-uri] :as options}]
   (if-not instance
     (do
       (do-log options :info "No server instance provided to stop.")

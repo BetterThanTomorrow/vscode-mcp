@@ -21,7 +21,7 @@
 (defn log-stderr
   ([args] (log-stderr :debug args))
   ([level & args]
-   (when (>= (get log-levels :debug) (get log-levels level min-log-level))
+   (when (<= (get log-levels level 0) (get log-levels min-log-level))
      (.write (.-stderr process) (str "[Wrapper] " (string/join " " args) "\n")))))
 
 ;; Redirect console output to stderr, defaulting to debug level
@@ -137,41 +137,56 @@
                                "Socket connection closed cleanly."))
            (.exit process (if had-error? 1 0))))))
 
-(defn ^:export main [port-or-port-file & _]
+(defn ^:export main [port-or-port-file host & _]
 
   (log-stderr :info "Running in node version: " (.-version process))
 
   (let [script-name (path/basename (nth (.-argv process) 1 "mcp-server.js"))]
-    (if-not port-or-port-file
+    (cond
+      (not port-or-port-file)
       (do
-        (log-stderr :error (str "Usage: " script-name " <port or port-file>"))
+        (log-stderr :error (str "Usage: " script-name " <port-or-port-file> <host>"))
         (.write original-stdout
-              (str (js/JSON.stringify
-                    #js {:jsonrpc "2.0"
-                         :error #js {:code -32002
-                                     :message "Configuration error: Port or port file path not provided."}})
-                   "\n"))
-      (.exit process 1))
-        (-> (if-let [parsed-port (parse-long port-or-port-file)]
-          (js/Promise. (fn [resolve _]
-                         (log-stderr :info "Connecting to MCP server on port." parsed-port)
-                         (resolve parsed-port)))
-          (do
-            (log-stderr :info "Connecting to MCP server using port file." port-or-port-file)
-            (read-port-from-file port-or-port-file)))
-        (.then (fn [port]
-                 (if port
-                   (let [socket (net/connect #js {:port port})
-                         stdin (.-stdin process)]
-                     (handle-stdin stdin socket)
-                     (handle-socket socket)
-                     (log-stderr :info "Connected to MCP server on port" port))
-                   (do
-                     (log-stderr :error "Error: Port file not found:" port-or-port-file)
-                     (.write original-stdout
-                             (str (js/JSON.stringify
-                                   #js {:jsonrpc "2.0"
-                                        :error #js {:code -32001
-                                                    :message "MCP server not running or port file missing."}})
-                                  "\n"))
-                     (.exit process 1)))))))))
+                (str (js/JSON.stringify
+                      #js {:jsonrpc "2.0"
+                           :error #js {:code -32002
+                                       :message "Configuration error: Port or port file path not provided."}})
+                     "\n"))
+        (.exit process 1))
+
+      (or (nil? host) (string/blank? (str host)))
+      (do
+        (log-stderr :error (str "Usage: " script-name " <port-or-port-file> <host>"))
+        (.write original-stdout
+                (str (js/JSON.stringify
+                      #js {:jsonrpc "2.0"
+                           :error #js {:code -32002
+                                       :message "Configuration error: Host not provided."}})
+                     "\n"))
+        (.exit process 1))
+
+      :else
+      (-> (if-let [parsed-port (parse-long port-or-port-file)]
+            (js/Promise. (fn [resolve _]
+                           (log-stderr :info "Connecting to MCP server on port." parsed-port)
+                           (resolve parsed-port)))
+            (do
+              (log-stderr :info "Connecting to MCP server using port file." port-or-port-file)
+              (read-port-from-file port-or-port-file)))
+          (.then (fn [port]
+                   (if port
+                     (let [connect-host (str host)
+                           socket (net/connect #js {:port port :host connect-host})
+                           stdin (.-stdin process)]
+                       (handle-stdin stdin socket)
+                       (handle-socket socket)
+                       (log-stderr :info "Connected to MCP server on" connect-host "port" port))
+                     (do
+                       (log-stderr :error "Error: Port file not found:" port-or-port-file)
+                       (.write original-stdout
+                               (str (js/JSON.stringify
+                                     #js {:jsonrpc "2.0"
+                                          :error #js {:code -32001
+                                                      :message "MCP server not running or port file missing."}})
+                                    "\n"))
+                       (.exit process 1)))))))))
