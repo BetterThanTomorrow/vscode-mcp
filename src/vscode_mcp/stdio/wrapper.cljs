@@ -4,7 +4,8 @@
    ["net" :as net]
    ["process" :as process]
    ["path" :as path]
-   [clojure.string :as string]))
+   [clojure.string :as string]
+   [vscode-mcp.stdio-config :as stdio-config]))
 
 (def log-levels {:error 0
                  :warn 1
@@ -145,23 +146,12 @@
     (cond
       (not port-or-port-file)
       (do
-        (log-stderr :error (str "Usage: " script-name " <port-or-port-file> <host>"))
+        (log-stderr :error (str "Usage: " script-name " <port-or-port-file> [host]"))
         (.write original-stdout
                 (str (js/JSON.stringify
                       #js {:jsonrpc "2.0"
                            :error #js {:code -32002
                                        :message "Configuration error: Port or port file path not provided."}})
-                     "\n"))
-        (.exit process 1))
-
-      (or (nil? host) (string/blank? (str host)))
-      (do
-        (log-stderr :error (str "Usage: " script-name " <port-or-port-file> <host>"))
-        (.write original-stdout
-                (str (js/JSON.stringify
-                      #js {:jsonrpc "2.0"
-                           :error #js {:code -32002
-                                       :message "Configuration error: Host not provided."}})
                      "\n"))
         (.exit process 1))
 
@@ -175,7 +165,7 @@
               (read-port-from-file port-or-port-file)))
           (.then (fn [port]
                    (if port
-                     (let [connect-host (str host)
+                     (let [connect-host (stdio-config/normalize-host host)
                            socket (net/connect #js {:port port :host connect-host})
                            stdin (.-stdin process)]
                        (handle-stdin stdin socket)

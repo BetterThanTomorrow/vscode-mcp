@@ -1,6 +1,7 @@
 (ns vscode-mcp.cursor-config
   (:require
-   ["path" :as path]))
+   ["path" :as path]
+   [vscode-mcp.stdio-config :as stdio-config]))
 
 (defn mcp-client-identifier
   "Cursor MCP service identifier for `mcp.reloadClient`.
@@ -26,14 +27,11 @@
     (not (seq (str port-file-path)))
     {:ok false :reason :missing-port-file-path}
 
-    (not (seq (str host)))
-    {:ok false :reason :missing-host}
-
     :else
     {:ok true
      :config {:name server-name
               :server {:command "node"
-                       :args [(str wrapper-path) (str port-file-path) (str host)]
+                       :args (stdio-config/stdio-args wrapper-path port-file-path host)
                        :env {}}}}))
 
 (defn build-cursor-mcp-registration-config
