@@ -7,6 +7,32 @@
    ["path" :as path]
    [vscode-mcp.stdio-config :as stdio-config]))
 
+(defn- short-hash [s]
+  (.toString (js/Math.abs (hash s)) 36))
+
+(defn instance-slug
+  "Per-window slug shared by the Cursor server name and port-file path.
+   Workspace windows get `ws-<hash>` (deterministic per workspace path),
+   workspace-less windows get `win-<hash>` from the storage path, and windows
+   with neither get a random `anon-<id>`. The start flow computes this once and
+   carries it in server-info so registration and unregistration agree."
+  [{:instance/keys [workspace-root-path storage-uri-path]}]
+  (cond
+    (seq workspace-root-path)
+    (str "ws-" (short-hash workspace-root-path))
+
+    (seq storage-uri-path)
+    (str "win-" (short-hash storage-uri-path))
+
+    :else
+    (str "anon-" (subs (str (random-uuid)) 0 8))))
+
+(defn slugged-server-name
+  "The Cursor `registerServer` name: the base name suffixed with the
+   per-window instance slug."
+  [base-name instance-slug]
+  (str base-name "-" instance-slug))
+
 (defn mcp-client-identifier
   "Cursor MCP service identifier for `mcp.reloadClient`.
    Built as user-{extensionId}-extension-{registerServer name}"

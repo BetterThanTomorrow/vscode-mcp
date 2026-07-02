@@ -3,11 +3,19 @@
    current lifecycle state as an explicit argument and resolve to the next
    state. Consumers own storing that state.
 
+   `:cursor/server-name` in the config is a base name (e.g. \"joyride\");
+   the start flow suffixes it with a per-window instance slug so windows
+   don't overwrite each other's Cursor registrations. The slug is carried
+   in server-info as `:server/instance-slug` (so stop/unregister agree with
+   registration) and passed to the `:lifecycle/port-file-uri+` callback as
+   `:lifecycle/instance-slug` for slug-scoped port-file paths.
+
    State/config helpers are re-exported from `vscode-mcp.lifecycle` so
    this namespace is the single require for consumers."
   (:require
    [promesa.core :as p]
    [vscode-mcp.cursor :as cursor]
+   [vscode-mcp.cursor-config :as cursor-config]
    [vscode-mcp.lifecycle :as state]
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
@@ -43,7 +51,9 @@
     (if (should-call-register-server? state' {:lifecycle/silent? silent?} register-allowed?)
       (-> (cursor/register-and-reload-mcp-client!+
            {:vscode/extension-context extension-context
-            :cursor/server-name server-name
+            :cursor/server-name (cursor-config/slugged-server-name
+                                 server-name
+                                 (:server/instance-slug started-server-info))
             :cursor/script-relative-path script-relative-path
             :server/port-file-uri (:server/port-file-uri started-server-info)
             :server/host host
@@ -67,7 +77,9 @@
            :server/keys [host]
            :lifecycle/keys [port-file-uri+ request-port wrapper-path
                              on-running-changed on-starting-changed]} config
-          strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)}
+          instance-slug (cursor/current-instance-slug extension-context)
+          strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
+                         :lifecycle/instance-slug instance-slug}
           port-file-uri (when port-file-uri+ (port-file-uri+ extension-context strategy-opts))
           request-port-value (when request-port (request-port extension-context strategy-opts))]
       (notify! on-starting-changed true)
@@ -77,8 +89,9 @@
                                   :mcp/on-request on-request
                                   :mcp/on-log on-log})
           (p/then (fn [started-server-info]
-                    (notify! on-running-changed true started-server-info)
-                    (maybe-register!+ config state silent? started-server-info)))
+                    (let [info (assoc started-server-info :server/instance-slug instance-slug)]
+                      (notify! on-running-changed true info)
+                      (maybe-register!+ config state silent? info))))
           (p/then (fn [state']
                     (notify! on-starting-changed false)
                     (when-not silent?
@@ -125,7 +138,9 @@
           info (server-info state)]
       (notify! on-stopping-changed true)
       (-> (if (:lifecycle/cursor-registered? state)
-            (cursor/unregister-mcp-server!+ {:cursor/server-name server-name
+            (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
+                                                                  server-name
+                                                                  (:server/instance-slug info))
                                              :vscode/extension-context extension-context})
             (p/resolved true))
           (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))

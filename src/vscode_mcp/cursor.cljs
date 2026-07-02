@@ -24,6 +24,19 @@
         (some? (.-mcp (.-cursor vscode)))
         (fn? (.-registerServer (.-mcp (.-cursor vscode)))))))
 
+(defn current-instance-slug
+  "Computes the per-window instance slug from the current VS Code window.
+   Pure of state — callers (normally `vscode-mcp.core`'s start flow) own
+   keeping the result stable across a session via the lifecycle state."
+  [^js extension-context]
+  (config/instance-slug
+   #:instance{:workspace-root-path (some-> ^js (first vscode/workspace.workspaceFolders)
+                                           .-uri
+                                           .-fsPath)
+              :storage-uri-path (some-> extension-context
+                                        .-storageUri
+                                        .-fsPath)}))
+
 (defn- last-registered-config-key [server-name]
   (str "vscode-mcp.cursor/last-registered-config:" server-name))
 

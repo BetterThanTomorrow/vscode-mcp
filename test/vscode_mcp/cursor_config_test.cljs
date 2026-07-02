@@ -29,3 +29,28 @@
   (testing "JSON-round-tripped stored value compares equal to CLJ original"
     (let [stored (js->clj (clj->js sample-config))]
       (is (false? (sut/registration-config-changed? stored sample-config))))))
+
+(deftest instance-slug-test
+  (testing "workspace path yields deterministic ws- slug"
+    (is (re-matches #"ws-[a-z0-9]+"
+                    (sut/instance-slug #:instance{:workspace-root-path "/Users/dev/my project (v2)!"})))
+    (is (= (sut/instance-slug #:instance{:workspace-root-path "/a/b"})
+           (sut/instance-slug #:instance{:workspace-root-path "/a/b"}))
+        "deterministic for the same path")
+    (is (not= (sut/instance-slug #:instance{:workspace-root-path "/a/b"})
+              (sut/instance-slug #:instance{:workspace-root-path "/c/b"}))
+        "differs for different paths"))
+
+  (testing "storage path yields win- slug"
+    (is (re-matches #"win-[a-z0-9]+"
+                    (sut/instance-slug #:instance{:storage-uri-path "/storage/abc"}))))
+
+  (testing "no inputs yields random anon- slug"
+    (is (re-matches #"anon-[0-9a-f]{8}" (sut/instance-slug {})))
+    (is (not= (sut/instance-slug {})
+              (sut/instance-slug {})))))
+
+(deftest slugged-server-name-test
+  (testing "suffixes the base name with the instance slug"
+    (is (= "joyride-ws-2ypyqk"
+           (sut/slugged-server-name "joyride" "ws-2ypyqk")))))
