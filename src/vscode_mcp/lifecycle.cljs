@@ -1,137 +1,50 @@
 (ns vscode-mcp.lifecycle
-  "Lifecycle orchestration: `maybe-start!+` / `start!+` / `stop!+` take the
-   current lifecycle state as an explicit argument and resolve to the next
-   state. Consumers own storing that state.
+  "Lifecycle state and config helpers — no VS Code API touched here.
+   `init-state`, `running?`, `server-info`, `create-config`, and
+   `should-call-register-server?` are re-exported from `vscode-mcp.core`,
+   which is the namespace consumers should actually require.
 
-   State/config helpers are re-exported from `vscode-mcp.lifecycle.state` so
-   this namespace is the single require for consumers."
+   `port-file-present?` is internal — used only by `vscode-mcp.core`
+   itself, not re-exported, not part of the consumer API."
   (:require
-   [promesa.core :as p]
-   [vscode-mcp.cursor :as cursor]
-   [vscode-mcp.lifecycle.state :as state]
-   [vscode-mcp.manual-setup.dialog :as dialog]
-   [vscode-mcp.policy :as policy]
-   [vscode-mcp.server :as server]))
+   [vscode-mcp.stdio-config :as stdio-config]))
 
-(def init-state state/init-state)
-(def running? state/running?)
-(def server-info state/server-info)
-(def create-config state/create-config)
-(def should-call-register-server? state/should-call-register-server?)
+(defn init-state
+  "The zero-value lifecycle state. Consumers own storing/updating this data;
+   `vscode-mcp.core` holds no atom of its own."
+  []
+  {:lifecycle/server-info nil
+   :lifecycle/cursor-registered? false
+   :lifecycle/cursor-register-called? false
+   :lifecycle/starting? false
+   :lifecycle/stopping? false})
 
-(defn- cursor-mode?
-  "Whether Cursor auto-registration is both enabled and possible right now."
-  [{:mcp/keys [auto-register?]}]
-  (and (cursor/cursor-mcp-available?) (boolean auto-register?)))
+(defn running?
+  [state]
+  (boolean (:lifecycle/server-info state)))
 
-(defn- notify!
-  [f & args]
-  (when f (apply f args)))
+(defn server-info
+  [state]
+  (:lifecycle/server-info state))
 
-(defn- maybe-register!+
-  [config state opts started-server-info cursor-mode?]
-  (let [{:cursor/keys [server-name script-relative-path]
-         :vscode/keys [extension-context]
-         :mcp/keys [auto-register?]
-         :server/keys [host]
-         :lifecycle/keys [on-cursor-registered on-cursor-registration-failed]} config
-        register-allowed? (policy/should-register-with-cursor?
-                            {:mcp/auto-register? auto-register?
-                             :mcp/cursor-available? cursor-mode?
-                             :mcp/port-file-present? (state/port-file-present? started-server-info)})
-        state' (assoc state :lifecycle/server-info started-server-info)]
-    (if (should-call-register-server? state' opts register-allowed?)
-      (-> (cursor/register-and-reload-mcp-client!+
-           {:vscode/extension-context extension-context
-            :cursor/server-name server-name
-            :cursor/script-relative-path script-relative-path
-            :server/port-file-uri (:server/port-file-uri started-server-info)
-            :server/host host})
-          (p/then (fn [result]
-                    (if (:ok result)
-                      (do (notify! on-cursor-registered result)
-                          (assoc state'
-                                 :lifecycle/cursor-registered? true
-                                 :lifecycle/cursor-register-called? true))
-                      (do (notify! on-cursor-registration-failed result)
-                          (assoc state' :lifecycle/cursor-register-called? true))))))
-      (p/resolved state'))))
+(defn create-config
+  "Validates/defaults a lifecycle config map. Pure — returns data, not an instance."
+  [opts]
+  (merge {:mcp/auto-start? false
+          :mcp/auto-register? true
+          :server/host stdio-config/default-host}
+         opts))
 
-(defn- start-flow!+
-  [config state {:lifecycle/keys [silent?] :as opts}]
-  (if (running? state)
-    (p/resolved state)
-    (let [{:vscode/keys [extension-context]
-           :mcp/keys [on-request on-log on-error]
-           :server/keys [host]
-           :lifecycle/keys [port-file-uri+ request-port wrapper-path
-                             on-running-changed on-starting-changed]} config
-          cursor-mode? (cursor-mode? config)
-          strategy-opts {:lifecycle/cursor-mode? cursor-mode?}
-          port-file-uri (when port-file-uri+ (port-file-uri+ extension-context strategy-opts))
-          request-port-value (when request-port (request-port extension-context strategy-opts))]
-      (notify! on-starting-changed true)
-      (-> (server/start-server!+ {:server/host host
-                                  :server/request-port request-port-value
-                                  :server/port-file-uri port-file-uri
-                                  :mcp/on-request on-request
-                                  :mcp/on-log on-log})
-          (p/then (fn [started-server-info]
-                    (notify! on-running-changed true started-server-info)
-                    (maybe-register!+ config state opts started-server-info cursor-mode?)))
-          (p/then (fn [state']
-                    (notify! on-starting-changed false)
-                    (when-not silent?
-                      (dialog/show-manual-start-dialog!+
-                       (wrapper-path extension-context (server-info state'))
-                       (server-info state')
-                       (select-keys config [:manual-setup/message-suffix])))
-                    state'))
-          (p/catch (fn [e]
-                     (notify! on-starting-changed false)
-                     (notify! on-error e)
-                     state))))))
+(defn port-file-present?
+  [server-info]
+  (boolean (seq (some-> server-info :server/port-file-uri (unchecked-get "fsPath")))))
 
-(defn maybe-start!+
-  "Silent activation start: only starts when policy allows it (explicit
-   auto-start, or Cursor auto-register with Cursor MCP API available)."
-  ([config state] (maybe-start!+ config state {:lifecycle/silent? true}))
-  ([config state opts]
-   (let [{:mcp/keys [auto-start? auto-register?]} config]
-     (if (or (running? state)
-             (policy/should-auto-start? {:mcp/auto-start? auto-start?
-                                         :mcp/auto-register? auto-register?
-                                         :mcp/cursor-available? (cursor/cursor-mcp-available?)}))
-       (start-flow!+ config state (merge {:lifecycle/silent? true} opts))
-       (p/resolved state)))))
-
-(defn start!+
-  "Manual (command-driven) start: starts unconditionally unless already
-   running, and shows the manual-setup dialog unless silent."
-  ([config state] (start!+ config state {:lifecycle/silent? false}))
-  ([config state opts]
-   (start-flow!+ config state (merge {:lifecycle/silent? false} opts))))
-
-(defn stop!+
-  "Stops the server, unregistering from Cursor first if registered.
-   Silent by default (deactivate); pass {:lifecycle/silent? false} for a
-   manual stop that also shows the \"MCP server stopped\" message."
-  ([config state] (stop!+ config state {:lifecycle/silent? true}))
-  ([config state {:lifecycle/keys [silent?]}]
-   (if-not (running? state)
-     (p/resolved state)
-     (let [{:cursor/keys [server-name]
-            :mcp/keys [on-log]
-            :lifecycle/keys [on-running-changed on-stopping-changed]} config
-           info (server-info state)]
-       (notify! on-stopping-changed true)
-       (-> (if (:lifecycle/cursor-registered? state)
-             (cursor/unregister-mcp-server!+ {:cursor/server-name server-name})
-             (p/resolved true))
-           (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))
-           (p/then (fn [_]
-                     (notify! on-running-changed false nil)
-                     (notify! on-stopping-changed false)
-                     (when-not silent?
-                       (dialog/show-stopped-message!+ {:manual-setup/silent? false}))
-                     (init-state))))))))
+(defn should-call-register-server?
+  "Cursor registration dedupe: register when allowed by policy,
+   not already registered, and not already called this activation — unless a
+   manual (non-silent) start clears the called flag first."
+  [state {:lifecycle/keys [silent?]} register-allowed?]
+  (and register-allowed?
+       (not (:lifecycle/cursor-registered? state))
+       (not (:lifecycle/cursor-register-called?
+             (if silent? state (dissoc state :lifecycle/cursor-register-called?))))))

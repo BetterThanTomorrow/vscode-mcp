@@ -96,12 +96,12 @@ For example, given this `package.json` declaration:
 
 ### 4. Wire Up Lifecycle: Start, Stop, Cursor Registration
 
-`vscode-mcp.lifecycle` is the recommended way to drive the server — it owns starting/stopping the socket, deciding when to auto-register with Cursor (with dedupe, so it won't register twice), and showing the manual-start dialog and copy-command clipboard UX (from `vscode-mcp.manual-setup`) when the user runs a manual "start" command. You get all of that by building one config map and holding one piece of state.
+`vscode-mcp.core` from where you drive the server — it owns starting/stopping the socket, deciding when to auto-register with Cursor, and showing the manual-start dialog and copy-command clipboard UX (from `vscode-mcp.manual-setup`) when the user runs a manual "start" command. You get all of that by building one config map and holding one piece of state.
 
-`vscode-mcp.lifecycle` is **stateless** — it holds no atom of its own. Every call takes the current lifecycle state as an explicit argument and resolves to the *next* state. You own that state (an atom, your app-db, whatever) and just pass whatever comes back into the next call, verbatim:
+`vscode-mcp.core` functions take the current lifecycle state as an argument and resolves to the *next* state. You own that state and thread whatever comes back into the next call, verbatim:
 
 ```clojure
-(require '[vscode-mcp.lifecycle :as lifecycle])
+(require '[vscode-mcp.core :as lifecycle])
 (require '["path" :as path])
 (require '["vscode" :as vscode])
 
@@ -130,35 +130,32 @@ For example, given this `package.json` declaration:
 ;; Rebuild config on each lifecycle call so Settings changes (host, port, …)
 ;; take effect on the next server start without reloading the window.
 (defn activate [^js context]
-  (-> (lifecycle/maybe-start!+ (build-lifecycle-config context) @!lifecycle-state)
+  (-> (lifecycle/maybe-start!+ (build-lifecycle-config context) @!lifecycle-state true)
       (.then (fn [state] (reset! !lifecycle-state state)))))
 
 (defn deactivate []
-  ;; Silent by default: no "MCP server stopped" message.
-  (-> (lifecycle/stop!+ (build-lifecycle-config nil) @!lifecycle-state)
+  (-> (lifecycle/stop!+ (build-lifecycle-config nil) @!lifecycle-state true) ; no "MCP server stopped" message
       (.then (fn [state] (reset! !lifecycle-state state)))))
 ```
 
-`maybe-start!+` only starts the server when policy allows it (explicit `:mcp/auto-start?`, or Cursor auto-register with the Cursor MCP API available) — call it unconditionally from `activate`. For manual "Start MCP Server" / "Stop MCP Server" commands, call `start!+` / `stop!+` instead; unlike `maybe-start!+`, `start!+` always starts (unless already running) and shows the manual-start dialog with copy-to-clipboard buttons:
+`maybe-start!+` only starts the server when policy allows it (explicit `:mcp/auto-start?`, or Cursor auto-register with the Cursor MCP API available) — call it unconditionally from `activate`. For manual "Start MCP Server" / "Stop MCP Server" commands, call `start!+` / `stop!+` instead; unlike `maybe-start!+`, `start!+` always starts (unless already running) and shows the manual-start dialog with copy-to-clipboard buttons.
+
+`maybe-start!+` / `start!+` / `stop!+` all take `silent?` as a required third argument — no default, so every call site states its intent:
 
 ```clojure
 (defn start-command! [^js context]
-  (-> (lifecycle/start!+ (build-lifecycle-config context) @!lifecycle-state)
+  (-> (lifecycle/start!+ (build-lifecycle-config context) @!lifecycle-state false)
       (.then (fn [state] (reset! !lifecycle-state state)))))
 
 (defn stop-command! [^js context]
-  (-> (lifecycle/stop!+ (build-lifecycle-config context) @!lifecycle-state {:lifecycle/silent? false})
+  (-> (lifecycle/stop!+ (build-lifecycle-config context) @!lifecycle-state false)
       (.then (fn [state] (reset! !lifecycle-state state)))))
 
 (defn server-running? []
   (lifecycle/running? @!lifecycle-state))
 ```
 
-`vscode-mcp.lifecycle` and `vscode-mcp.manual-setup.dialog` are the only namespaces that touch the live `vscode` module or open real sockets/dialogs (along with `vscode-mcp.server` and `vscode-mcp.cursor`, which they wrap). Everything else — `stdio-config`, `manifest`, `responses`, `policy`, and the pure halves `vscode-mcp.manual-setup` and `vscode-mcp.lifecycle.state` — is plain data-in/data-out ClojureScript, unit-tested without ever requiring `"vscode"`.
-
 **Settings and transport options.** Declare setting names and defaults in your extension's `package.json`; read them in `build-lifecycle-config` via `workspace.getConfiguration`. `vscode-mcp` does not read VS Code settings or supply host/port defaults — consumers pass explicit values (including required `:server/host`). Do not cache the lifecycle config for the whole activation: rebuild it on each `maybe-start!+`, `start!+`, and `stop!+` call. Transport settings such as host and port then take effect on the **next server start**.
-
-If you'd rather orchestrate start/stop yourself, the lower-level building blocks `vscode-mcp.server/start-server!+` / `stop-server!+` and `vscode-mcp.cursor/register-and-reload-mcp-client!+` / `unregister-mcp-server!+` are still there and used internally by `vscode-mcp.lifecycle` — but they exist to serve `vscode-mcp.lifecycle`, not as a documented alternative API; most consumers should just use the lifecycle module above.
 
 ## Too Opinionated for You?
 

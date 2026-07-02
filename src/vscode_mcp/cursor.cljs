@@ -1,11 +1,17 @@
 (ns vscode-mcp.cursor
   "Cursor MCP client registration.
 
-   Consumer API: `cursor-mcp-available?`, `register-and-reload-mcp-client!+`.
+   Consumer API: `cursor-mcp-available?`, for availability checks outside
+   the lifecycle flow (e.g. status/when-context bookkeeping).
 
-   `unregister-mcp-server!+` is internal — used by `vscode-mcp.lifecycle`'s
-   stop flow. Most consumers should drive Cursor registration through
-   `vscode-mcp.lifecycle` rather than calling these directly."
+   `register-and-reload-mcp-client!+` is normally reached only through
+   `vscode-mcp.core`'s start flow. Exception: dev-only hot-reload tooling
+   that needs to re-assert registration for an already-running server
+   (`start!+`/`maybe-start!+` no-op once running, so there's no other
+   entry point for that).
+
+   `unregister-mcp-server!+` is internal — used by `vscode-mcp.core`'s
+   stop flow only."
   (:require
    ["vscode" :as vscode]
    [vscode-mcp.cursor-config :as config]

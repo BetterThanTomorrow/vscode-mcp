@@ -5,10 +5,10 @@
    notifications to connected clients.
 
    `start-server!+` / `stop-server!+` are internal — used by
-   `vscode-mcp.lifecycle`, which owns port-file/Cursor orchestration around
-   them. Consumers driving their own start/stop without `vscode-mcp.lifecycle`
-   can still call them directly, but most consumers should use
-   `vscode-mcp.lifecycle` instead."
+   `vscode-mcp.core`, which owns port-file/Cursor orchestration around
+   them. Not a documented alternative API: every consumer should drive
+   start/stop through `vscode-mcp.core` instead of calling these
+   directly."
   (:require
    ["fs" :as fs]
    ["net" :as net]

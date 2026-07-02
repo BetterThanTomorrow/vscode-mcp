@@ -4,7 +4,7 @@
    `vscode-mcp.manual-setup` so that namespace's pure logic can be unit
    tested without loading \"vscode\".
 
-   Internal — both functions here are used only by `vscode-mcp.lifecycle`,
+   Internal — both functions here are used only by `vscode-mcp.core`,
    which is the namespace consumers should require for the full manual-start
    flow. Not part of the consumer API."
   (:require
