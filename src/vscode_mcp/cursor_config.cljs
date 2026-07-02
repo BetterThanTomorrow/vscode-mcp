@@ -49,3 +49,23 @@
                                                   :cursor/script-relative-path script-relative-path})
       :server/port-file-path port-file-fs-path
       :server/host host})))
+
+(defn- normalize-registration-config
+  "Keywordizes keys and canonicalizes shape so workspaceState JSON round-trip
+   compares equal to the CLJ original."
+  [config]
+  (when config
+    (let [kw (js->clj (clj->js config) :keywordize-keys true)
+          server (:server kw)]
+      {:name (:name kw)
+       :server (when server
+                 {:command (:command server)
+                  :args (vec (or (:args server) []))
+                  :env (or (:env server) {})})})))
+
+(defn registration-config-changed?
+  "True when `stored-config` differs from `fresh-config` over :name and server
+   {:command :args :env}, or when nothing was stored yet (first registration)."
+  [stored-config fresh-config]
+  (not= (normalize-registration-config stored-config)
+        (normalize-registration-config fresh-config)))

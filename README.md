@@ -163,6 +163,25 @@ This library is purpose-built to **minimize boilerplate for Copilot-native exten
 
 `vscode-mcp` is deeply environment-suited. It is used by [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver), and [Joyride](https://github.com/BetterThanTomorrow/joyride), and may or may not work for your use case.
 
+## Stdio Wrapper Connect-Retry
+
+The bundled `vscode-mcp.stdio.wrapper` script waits for the extension host to start the TCP server before giving up:
+
+- **Connect-retry:** up to 60 s budget, 500 ms fixed interval between attempts.
+- **Port file re-read:** each attempt re-resolves the port (numeric arg as-is; port-file arg re-read from disk).
+- **Stdin buffered during wait:** listeners attach at startup; queued lines flush to the socket on connect (partial-line remainder carried into live forwarding).
+- **Exit-on-close after first connection:** unchanged — once connected, socket close or error exits as before (Cursor respawns the wrapper).
+- **Exit if stdin closes during wait:** if Cursor gives up before the server is up, the wrapper exits promptly instead of orphan-retrying.
+
+## Cursor Reload Policy
+
+`register-and-reload-mcp-client!+` gates `mcp.reloadClient` so routine silent activations do not force-restart a healthy client:
+
+- **Persistence:** last registered config stored in `workspaceState` under `vscode-mcp.cursor/last-registered-config:{server-name}` (workspace scope because the port-file path in `:args` is workspace-derived).
+- **`:lifecycle/silent?`:** passed on `register-and-reload-mcp-client!+`; missing or `nil` ⇒ always reload (backward-safe default matching prior behavior).
+- **Skipped reload result:** `{:ok true :skipped :unchanged-config}` when reload is skipped (`:ok true` is load-bearing for consumers that warn on failed reload).
+- **`should-reload-client?` policy:** reload on manual start (`silent?` false/nil) or when the registered config changed; silent activation with unchanged config skips reload.
+
 ## Limitations & Shortcuts
 
 To keep the library dependency-free and lightweight, it takes a few deliberate shortcuts:

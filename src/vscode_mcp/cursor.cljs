@@ -15,6 +15,7 @@
   (:require
    ["vscode" :as vscode]
    [vscode-mcp.cursor-config :as config]
+   [vscode-mcp.policy :as policy]
    [promesa.core :as p]))
 
 (defn cursor-mcp-available? []
@@ -22,6 +23,25 @@
    (and (some? (.-cursor vscode))
         (some? (.-mcp (.-cursor vscode)))
         (fn? (.-registerServer (.-mcp (.-cursor vscode)))))))
+
+(defn- last-registered-config-key [server-name]
+  (str "vscode-mcp.cursor/last-registered-config:" server-name))
+
+(defn read-last-registered-config
+  [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
+  (when extension-context
+    (.get (.-workspaceState extension-context)
+          (last-registered-config-key server-name))))
+
+(defn store-last-registered-config!+
+  [{:vscode/keys [^js extension-context] :cursor/keys [server-name]} config]
+  (if extension-context
+    (-> (.update (.-workspaceState extension-context)
+                (last-registered-config-key server-name)
+                config)
+        (p/then (fn [_] {:ok true}))
+        (p/catch (fn [err] {:ok false :error err})))
+    (p/resolved {:ok false :reason :missing-extension-context})))
 
 (defn- port-file-ready?+ [^js port-file-uri]
   (if port-file-uri
@@ -68,8 +88,16 @@
   (p/let [register-result (register-mcp-server!+ options)]
     (if-not (:ok register-result)
       register-result
-      (p/let [reload-result (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
-                                                   :cursor/server-name (:cursor/server-name options)})]
+      (p/let [config (:config register-result)
+              stored (read-last-registered-config options)
+              config-changed? (config/registration-config-changed? stored config)
+              _ (store-last-registered-config!+ options config)
+              reload-result (if (policy/should-reload-client?
+                                 {:lifecycle/silent? (:lifecycle/silent? options)
+                                  :cursor/config-changed? config-changed?})
+                              (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
+                                                    :cursor/server-name (:cursor/server-name options)})
+                              (p/resolved {:ok true :skipped :unchanged-config}))]
         (assoc register-result :reload reload-result)))))
 
 (defn unregister-mcp-server!+ [{:cursor/keys [server-name]}]

@@ -5,7 +5,8 @@
    ["process" :as process]
    ["path" :as path]
    [clojure.string :as string]
-   [vscode-mcp.stdio-config :as stdio-config]))
+   [vscode-mcp.stdio-config :as stdio-config]
+   [vscode-mcp.stdio.connect-policy :as connect-policy]))
 
 (def ^:private log-levels {:error 0
                            :warn 1
@@ -68,27 +69,41 @@
     (when-not (string/blank? remaining)
       (on-line remaining))))
 
-(defn- handle-stdin [^js stdin ^js socket]
-  (let [stdin-buffer (volatile! "")
-        forward! (fn [message]
-                   (log-stderr :info "Complete message segment from stdin, sending to socket:" message)
-                   (.write socket (str message "\n")))]
+(defn- forward-line-to-socket! [^js socket message]
+  (log-stderr :info "Complete message segment from stdin, sending to socket:" message)
+  (.write socket (str message "\n")))
+
+(defn- write-give-up-error!
+  "Emit -32001 after connect budget exhausted; caller must exit 1."
+  []
+  (.write original-stdout
+          (str (js/JSON.stringify
+                #js {:jsonrpc "2.0"
+                     :error #js {:code -32001
+                                 :message "MCP server not reachable within 60s — port file missing or server not accepting connections"}})
+               "\n")))
+
+(defn- resolve-port+ [port-or-port-file]
+  (if-let [parsed-port (parse-long port-or-port-file)]
+    (js/Promise.resolve parsed-port)
+    (read-port-from-file port-or-port-file)))
+
+(defn- handle-stdin
+  [^js stdin ^js socket & [{:keys [initial-buffer]}]]
+  (let [stdin-buffer (volatile! (or initial-buffer ""))
+        forward! (fn [message] (forward-line-to-socket! socket message))]
     (.setEncoding stdin "utf8")
 
-    ;; Handle stdin data
     (.on stdin "data"
          (fn [chunk]
            (log-stderr :debug "Raw stdin chunk received:" chunk)
            (vswap! stdin-buffer str chunk)
            (process-newline-buffer! stdin-buffer forward!)))
 
-    ;; Handle stdin errors
     (.on stdin "error" (fn [err] (log-stderr :error "stdin error:" err)))
 
-    ;; Flush a trailing newline-less message on graceful end
     (.on stdin "end" (fn [] (flush-newline-buffer! stdin-buffer forward!)))
 
-    ;; Handle stdin close
     (.on stdin "close" (fn [] (log-stderr :info "stdin closed.")))))
 
 (defn- json-message? [s]
@@ -138,6 +153,116 @@
                                "Socket connection closed cleanly."))
            (.exit process (if had-error? 1 0))))))
 
+(defn- attach-wait-phase-stdin!
+  [^js stdin {:keys [line-queue buffer ended? on-wait-abort!]}]
+  (.setEncoding stdin "utf8")
+  (let [on-data (fn [chunk]
+                  (log-stderr :debug "Raw stdin chunk received (wait phase):" chunk)
+                  (vswap! buffer str chunk)
+                  (process-newline-buffer! buffer
+                                           (fn [line] (vswap! line-queue conj line))))
+        on-end (fn []
+                 (flush-newline-buffer! buffer
+                                        (fn [line] (vswap! line-queue conj line)))
+                 (vreset! ended? true)
+                 (on-wait-abort!))
+        on-close (fn []
+                   (log-stderr :info "stdin closed during wait phase.")
+                   (vreset! ended? true)
+                   (on-wait-abort!))
+        on-error (fn [err] (log-stderr :error "stdin error:" err))]
+    (.on stdin "data" on-data)
+    (.on stdin "error" on-error)
+    (.on stdin "end" on-end)
+    (.on stdin "close" on-close)
+    {:on-data on-data :on-error on-error :on-end on-end :on-close on-close}))
+
+(defn- detach-wait-phase-stdin!
+  [^js stdin handlers]
+  (.off stdin "data" (:on-data handlers))
+  (.off stdin "error" (:on-error handlers))
+  (.off stdin "end" (:on-end handlers))
+  (.off stdin "close" (:on-close handlers)))
+
+(defn- connect-with-retry!+
+  [port-or-port-file host options {:keys [stdin-ended? cleanup-connect!]}]
+  (js/Promise.
+   (fn [resolve _reject]
+     (let [start-ms (js/Date.now)
+           pending-timer (volatile! nil)
+           in-flight-socket (volatile! nil)
+           gave-up? (volatile! false)
+           clear-pending-timer! (fn []
+                                  (when-let [t @pending-timer]
+                                    (js/clearTimeout t)
+                                    (vreset! pending-timer nil)))
+           destroy-in-flight-socket! (fn []
+                                       (when-let [s @in-flight-socket]
+                                         (.destroy s)
+                                         (vreset! in-flight-socket nil)))
+           give-up! (fn []
+                      (when-not @gave-up?
+                        (vreset! gave-up? true)
+                        (clear-pending-timer!)
+                        (destroy-in-flight-socket!)
+                        (write-give-up-error!)
+                        (.exit process 1)))]
+       (letfn [(handle-retryable-failure! [reason]
+                 (when @stdin-ended?
+                   (clear-pending-timer!)
+                   (destroy-in-flight-socket!)
+                   (.exit process 0)
+                   nil)
+                 (when-not (or @gave-up? @stdin-ended?)
+                   (let [decision (connect-policy/attempt-decision
+                                   {:connect/start-ms start-ms
+                                    :connect/now-ms (js/Date.now)}
+                                   options)]
+                     (log-stderr :debug "Connect attempt failed:" reason
+                                 "elapsed-ms" (:connect/elapsed-ms decision)
+                                 "action" (:connect/action decision))
+                     (if (= (:connect/action decision) :give-up)
+                       (give-up!)
+                       (let [timer (js/setTimeout
+                                    attempt-connect!
+                                    (:connect/delay-ms decision))]
+                         (vreset! pending-timer timer))))))
+               (attempt-connect! []
+                 (when (and (not @gave-up?) (not @stdin-ended?))
+                   (log-stderr :debug "Attempting MCP server connection…")
+                   (-> (resolve-port+ port-or-port-file)
+                       (.then (fn [port]
+                                (when-not @stdin-ended?
+                                  (if port
+                                    (let [connect-host (stdio-config/normalize-host host)
+                                          socket (net/connect #js {:port port :host connect-host})]
+                                      (vreset! in-flight-socket socket)
+                                      (.once socket "error"
+                                             (fn [err]
+                                               (log-stderr :debug "Socket error during connect:" (.-message err))
+                                               (destroy-in-flight-socket!)
+                                               (handle-retryable-failure! (.-message err))))
+                                      (.once socket "connect"
+                                             (fn []
+                                               (if (or @gave-up? @stdin-ended?)
+                                                 (.destroy socket)
+                                                 (do
+                                                   (vreset! in-flight-socket nil)
+                                                   (clear-pending-timer!)
+                                                   (resolve {:socket socket
+                                                             :port port
+                                                             :connect-host connect-host}))))))
+                                    (handle-retryable-failure! "port unavailable")))))
+                       (.catch (fn [err]
+                                 (handle-retryable-failure! (str err)))))))]
+         (vreset! cleanup-connect!
+                  (fn []
+                    (vreset! gave-up? true)
+                    (clear-pending-timer!)
+                    (destroy-in-flight-socket!)))
+         (log-stderr :info "waiting for MCP server…")
+         (attempt-connect!))))))
+
 (defn ^:export main [port-or-port-file host & _]
 
   (log-stderr :info "Running in node version: " (.-version process))
@@ -156,27 +281,33 @@
         (.exit process 1))
 
       :else
-      (-> (if-let [parsed-port (parse-long port-or-port-file)]
-            (js/Promise. (fn [resolve _]
-                           (log-stderr :info "Connecting to MCP server on port." parsed-port)
-                           (resolve parsed-port)))
-            (do
-              (log-stderr :info "Connecting to MCP server using port file." port-or-port-file)
-              (read-port-from-file port-or-port-file)))
-          (.then (fn [port]
-                   (if port
-                     (let [connect-host (stdio-config/normalize-host host)
-                           socket (net/connect #js {:port port :host connect-host})
-                           stdin (.-stdin process)]
-                       (handle-stdin stdin socket)
+      (let [stdin (.-stdin process)
+            stdin-line-queue (volatile! [])
+            stdin-buffer (volatile! "")
+            stdin-ended? (volatile! false)
+            wait-phase-done? (volatile! false)
+            cleanup-connect! (volatile! (fn []))
+            abort-wait-phase! (fn []
+                                (when-not @wait-phase-done?
+                                  (@cleanup-connect!)
+                                  (.exit process 0)))
+            wait-handlers (attach-wait-phase-stdin!
+                           stdin
+                           {:line-queue stdin-line-queue
+                            :buffer stdin-buffer
+                            :ended? stdin-ended?
+                            :on-wait-abort! abort-wait-phase!})]
+        (-> (connect-with-retry!+ port-or-port-file host connect-policy/default-options
+                                  {:stdin-ended? stdin-ended?
+                                   :cleanup-connect! cleanup-connect!})
+            (.then (fn [{:keys [socket port connect-host]}]
+                     (vreset! wait-phase-done? true)
+                     (detach-wait-phase-stdin! stdin wait-handlers)
+                     (doseq [line @stdin-line-queue]
+                       (forward-line-to-socket! socket line))
+                     (vreset! stdin-line-queue [])
+                     (let [partial-remainder @stdin-buffer]
+                       (vreset! stdin-buffer "")
+                       (handle-stdin stdin socket {:initial-buffer partial-remainder})
                        (handle-socket socket)
-                       (log-stderr :info "Connected to MCP server on" connect-host "port" port))
-                     (do
-                       (log-stderr :error "Error: Port file not found:" port-or-port-file)
-                       (.write original-stdout
-                               (str (js/JSON.stringify
-                                     #js {:jsonrpc "2.0"
-                                          :error #js {:code -32001
-                                                      :message "MCP server not running or port file missing."}})
-                                    "\n"))
-                       (.exit process 1)))))))))
+                       (log-stderr :info "Connected to MCP server on" connect-host "port" port)))))))))

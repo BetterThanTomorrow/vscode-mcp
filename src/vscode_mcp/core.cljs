@@ -46,7 +46,8 @@
             :cursor/server-name server-name
             :cursor/script-relative-path script-relative-path
             :server/port-file-uri (:server/port-file-uri started-server-info)
-            :server/host host})
+            :server/host host
+            :lifecycle/silent? silent?})
           (p/then (fn [result]
                     (if (:ok result)
                       (do (notify! on-cursor-registered result)

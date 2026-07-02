@@ -10,3 +10,11 @@
   (and auto-register?
        cursor-available?
        port-file-present?))
+
+(defn should-reload-client?
+  "Whether to call mcp.reloadClient after registerServer.
+   Manual start (silent? false or missing) always reloads; silent activations
+   reload only when the registration config changed."
+  [{:lifecycle/keys [silent?]
+    :cursor/keys [config-changed?]}]
+  (or (not silent?) config-changed?))
