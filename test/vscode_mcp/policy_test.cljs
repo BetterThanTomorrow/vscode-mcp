@@ -34,6 +34,11 @@
     (is (not (sut/should-reload-client? {:lifecycle/silent? true
                                          :cursor/config-changed? false}))))
 
+  (testing "silent activation with unchanged config after unregister reloads"
+    (is (sut/should-reload-client? {:lifecycle/silent? true
+                                      :cursor/config-changed? false
+                                      :cursor/pending-reload-after-unregister? true})))
+
   (testing "silent activation with changed config reloads"
     (is (sut/should-reload-client? {:lifecycle/silent? true
                                     :cursor/config-changed? true})))

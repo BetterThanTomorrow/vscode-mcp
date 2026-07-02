@@ -43,6 +43,36 @@
         (p/catch (fn [err] {:ok false :error err})))
     (p/resolved {:ok false :reason :missing-extension-context})))
 
+(defn- pending-reload-after-unregister-key [server-name]
+  (str "vscode-mcp.cursor/pending-reload-after-unregister:" server-name))
+
+(defn read-pending-reload-after-unregister?
+  [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
+  (boolean
+   (when extension-context
+     (.get (.-workspaceState extension-context)
+           (pending-reload-after-unregister-key server-name)))))
+
+(defn mark-pending-reload-after-unregister!+
+  [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
+  (if extension-context
+    (-> (.update (.-workspaceState extension-context)
+                (pending-reload-after-unregister-key server-name)
+                true)
+        (p/then (fn [_] {:ok true}))
+        (p/catch (fn [err] {:ok false :error err})))
+    (p/resolved {:ok false :reason :missing-extension-context})))
+
+(defn clear-pending-reload-after-unregister!+
+  [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
+  (if extension-context
+    (-> (.update (.-workspaceState extension-context)
+                (pending-reload-after-unregister-key server-name)
+                nil)
+        (p/then (fn [_] {:ok true}))
+        (p/catch (fn [err] {:ok false :error err})))
+    (p/resolved {:ok false :reason :missing-extension-context})))
+
 (defn- port-file-ready?+ [^js port-file-uri]
   (if port-file-uri
     (-> (vscode/workspace.fs.stat port-file-uri)
@@ -91,21 +121,26 @@
       (p/let [config (:config register-result)
               stored (read-last-registered-config options)
               config-changed? (config/registration-config-changed? stored config)
+              pending-reload-after-unregister? (read-pending-reload-after-unregister? options)
               _ (store-last-registered-config!+ options config)
               reload-result (if (policy/should-reload-client?
                                  {:lifecycle/silent? (:lifecycle/silent? options)
-                                  :cursor/config-changed? config-changed?})
+                                  :cursor/config-changed? config-changed?
+                                  :cursor/pending-reload-after-unregister? pending-reload-after-unregister?})
                               (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
                                                     :cursor/server-name (:cursor/server-name options)})
-                              (p/resolved {:ok true :skipped :unchanged-config}))]
+                              (p/resolved {:ok true :skipped :unchanged-config}))
+              _ (clear-pending-reload-after-unregister!+ options)]
         (assoc register-result :reload reload-result)))))
 
-(defn unregister-mcp-server!+ [{:cursor/keys [server-name]}]
+(defn unregister-mcp-server!+ [options]
   (cond
     (not (cursor-mcp-available?))
     (p/resolved {:ok false :reason :cursor-api-unavailable})
 
     :else
-    (-> (.unregisterServer (.-mcp (.-cursor vscode)) server-name)
-        (p/then (fn [_] {:ok true}))
+    (-> (.unregisterServer (.-mcp (.-cursor vscode)) (:cursor/server-name options))
+        (p/then (fn [_]
+                  (p/let [_ (mark-pending-reload-after-unregister!+ options)]
+                    {:ok true})))
         (p/catch (fn [err] {:ok false :error err})))))

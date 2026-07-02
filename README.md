@@ -177,10 +177,10 @@ The bundled `vscode-mcp.stdio.wrapper` script waits for the extension host to st
 
 `register-and-reload-mcp-client!+` gates `mcp.reloadClient` so routine silent activations do not force-restart a healthy client:
 
-- **Persistence:** last registered config stored in `workspaceState` under `vscode-mcp.cursor/last-registered-config:{server-name}` (workspace scope because the port-file path in `:args` is workspace-derived).
+- **Persistence:** last registered config stored in `workspaceState` under `vscode-mcp.cursor/last-registered-config:{server-name}` (workspace scope because the port-file path in `:args` is workspace-derived). After `unregisterServer`, a `vscode-mcp.cursor/pending-reload-after-unregister:{server-name}` flag is set so the next register triggers reload even when config is unchanged.
 - **`:lifecycle/silent?`:** passed on `register-and-reload-mcp-client!+`; missing or `nil` ⇒ always reload (backward-safe default matching prior behavior).
 - **Skipped reload result:** `{:ok true :skipped :unchanged-config}` when reload is skipped (`:ok true` is load-bearing for consumers that warn on failed reload).
-- **`should-reload-client?` policy:** reload on manual start (`silent?` false/nil) or when the registered config changed; silent activation with unchanged config skips reload.
+- **`should-reload-client?` policy:** reload on manual start (`silent?` false/nil), when the registered config changed, or after unregister+register (pending-reload flag); silent activation with unchanged config and no prior unregister skips reload.
 
 ## Limitations & Shortcuts
 

@@ -119,12 +119,14 @@
   (if-not (running? state)
     (p/resolved state)
     (let [{:cursor/keys [server-name]
+           :vscode/keys [extension-context]
            :mcp/keys [on-log]
            :lifecycle/keys [on-running-changed on-stopping-changed]} config
           info (server-info state)]
       (notify! on-stopping-changed true)
       (-> (if (:lifecycle/cursor-registered? state)
-            (cursor/unregister-mcp-server!+ {:cursor/server-name server-name})
+            (cursor/unregister-mcp-server!+ {:cursor/server-name server-name
+                                             :vscode/extension-context extension-context})
             (p/resolved true))
           (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))
           (p/then (fn [_]
