@@ -1,7 +1,13 @@
 (ns vscode-mcp.manual-setup
   "Pure manual-start UX logic — no VS Code API touched here, so this
    namespace (and its tests) never need to load `\"vscode\"`.
-   See `vscode-mcp.manual-setup.dialog` for the VS Code effects that use it."
+   See `vscode-mcp.manual-setup.dialog` for the VS Code effects that use it.
+
+   Consumer API: `copy-command-strings`, for building your own manual-setup
+   UI without the built-in dialog.
+
+   `format-start-message` is internal — used only by
+   `vscode-mcp.manual-setup.dialog`."
   (:require
    [vscode-mcp.stdio-config :as stdio-config]))
 

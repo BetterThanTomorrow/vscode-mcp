@@ -1,4 +1,7 @@
 (ns vscode-mcp.stdio-config
+  "Internal — shared by `vscode-mcp.manual-setup`, `vscode-mcp.cursor-config`,
+   `vscode-mcp.lifecycle.state`, and `vscode-mcp.stdio.wrapper`. Not part of
+   the consumer API; no consumer needs to require this namespace directly."
   (:require
    [clojure.string :as string]))
 

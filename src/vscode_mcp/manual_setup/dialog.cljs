@@ -2,7 +2,11 @@
   "VS Code effects for manual MCP setup: the information dialog with copy
    buttons, and the manual-stop message. Kept apart from
    `vscode-mcp.manual-setup` so that namespace's pure logic can be unit
-   tested without loading \"vscode\"."
+   tested without loading \"vscode\".
+
+   Internal — both functions here are used only by `vscode-mcp.lifecycle`,
+   which is the namespace consumers should require for the full manual-start
+   flow. Not part of the consumer API."
   (:require
    ["vscode" :as vscode]
    [promesa.core :as p]

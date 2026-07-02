@@ -4,7 +4,7 @@
    ["path" :as path]
    [clojure.string :as string]))
 
-(defn satisfies-when? [when-clause settings]
+(defn- satisfies-when? [when-clause settings]
   (if (or (nil? when-clause) (empty? when-clause))
     true
     ;; If the when clause matches a key in settings, use its boolean value.
@@ -32,7 +32,7 @@
       string/trim
       (string/replace #"^[>|]-?[ \t]*(?:\r\n|\n|\r)[ \t]*" "")))
 
-(defn parse-frontmatter
+(defn- parse-frontmatter
   "Parses frontmatter text (lines between --- delimiters) into a map.
    Handles multi-line values by concatenating continuation lines.
    Keys are converted to keywords, values are kept as raw strings but trimmed overall."
@@ -62,7 +62,7 @@
       (assoc acc current-key (clean-yaml-value current-value))
       acc)))
 
-(defn read-skill-frontmatter [content]
+(defn- read-skill-frontmatter [content]
   (when-let [[_ frontmatter-text] (re-find #"^---\s*\n([\s\S]*?)\n---" content)]
     (let [parsed (parse-frontmatter frontmatter-text)]
       {:description (:description parsed)

@@ -1,4 +1,11 @@
 (ns vscode-mcp.cursor
+  "Cursor MCP client registration.
+
+   Consumer API: `cursor-mcp-available?`, `register-and-reload-mcp-client!+`.
+
+   `unregister-mcp-server!+` is internal — used by `vscode-mcp.lifecycle`'s
+   stop flow. Most consumers should drive Cursor registration through
+   `vscode-mcp.lifecycle` rather than calling these directly."
   (:require
    ["vscode" :as vscode]
    [vscode-mcp.cursor-config :as config]
@@ -10,14 +17,14 @@
         (some? (.-mcp (.-cursor vscode)))
         (fn? (.-registerServer (.-mcp (.-cursor vscode)))))))
 
-(defn port-file-ready?+ [^js port-file-uri]
+(defn- port-file-ready?+ [^js port-file-uri]
   (if port-file-uri
     (-> (vscode/workspace.fs.stat port-file-uri)
         (p/then (fn [_] true))
         (p/catch (fn [_] false)))
     (p/resolved false)))
 
-(defn reload-mcp-client!+
+(defn- reload-mcp-client!+
   [{:vscode/keys [extension-context] :cursor/keys [server-name]}]
   (let [identifier (config/mcp-client-identifier {:vscode/extension-context extension-context
                                                     :cursor/server-name server-name})]
@@ -32,7 +39,7 @@
           (p/then (fn [result] {:ok true :identifier identifier :result result}))
           (p/catch (fn [err] {:ok false :identifier identifier :error err}))))))
 
-(defn register-mcp-server!+ [options]
+(defn- register-mcp-server!+ [options]
   (p/let [{:keys [ok config reason]} (config/build-cursor-mcp-registration-config options)
           port-file-uri (:server/port-file-uri options)
           ready? (port-file-ready?+ port-file-uri)]

@@ -1,4 +1,8 @@
 (ns vscode-mcp.cursor-config
+  "Internal to `vscode-mcp.cursor` — not part of the consumer API.
+
+   Pure config-building helpers with no `\"vscode\"` require, kept separate so
+   they can be unit-tested directly."
   (:require
    ["path" :as path]
    [vscode-mcp.stdio-config :as stdio-config]))

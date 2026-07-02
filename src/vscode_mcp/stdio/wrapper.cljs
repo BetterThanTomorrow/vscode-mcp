@@ -7,19 +7,19 @@
    [clojure.string :as string]
    [vscode-mcp.stdio-config :as stdio-config]))
 
-(def log-levels {:error 0
-                 :warn 1
-                 :info 2
-                 :debug 3})
+(def ^:private log-levels {:error 0
+                           :warn 1
+                           :info 2
+                           :debug 3})
 
-(def min-log-level
+(def ^:private min-log-level
   (let [arg-level (some #(when (.startsWith % "--min-log-level=")
                            (subs % (count "--min-log-level=")))
                         (js->clj (.-argv process)))
         level-kw (when arg-level (keyword arg-level))]
     (get log-levels level-kw :debug)))
 
-(defn log-stderr
+(defn- log-stderr
   ([args] (log-stderr :debug args))
   ([level & args]
    (when (<= (get log-levels level 0) (get log-levels min-log-level))
@@ -29,9 +29,9 @@
 (set! js/console.log (partial log-stderr :debug))
 (set! js/console.error (partial log-stderr :error))
 
-(def original-stdout (.-stdout process))
+(def ^:private original-stdout (.-stdout process))
 
-(defn read-port-from-file [port-file-path]
+(defn- read-port-from-file [port-file-path]
   (js/Promise.
    (fn [resolve _reject]
      (.readFile fs port-file-path #js {:encoding "utf8"}
@@ -68,7 +68,7 @@
     (when-not (string/blank? remaining)
       (on-line remaining))))
 
-(defn handle-stdin [^js stdin ^js socket]
+(defn- handle-stdin [^js stdin ^js socket]
   (let [stdin-buffer (volatile! "")
         forward! (fn [message]
                    (log-stderr :info "Complete message segment from stdin, sending to socket:" message)
@@ -97,7 +97,7 @@
        (or (.startsWith s "{")
            (.startsWith s "["))))
 
-(defn handle-socket [^js socket]
+(defn- handle-socket [^js socket]
   (.setEncoding socket "utf8")
 
   (let [socket-buffer (volatile! "")

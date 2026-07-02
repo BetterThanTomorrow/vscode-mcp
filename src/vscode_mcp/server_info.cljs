@@ -1,4 +1,5 @@
-(ns vscode-mcp.server-info)
+(ns vscode-mcp.server-info
+  "Internal to `vscode-mcp.server` — not part of the consumer API.")
 
 (defn merge-started-server-info
   "Combines runtime options with socket server info from start-socket-server!+.

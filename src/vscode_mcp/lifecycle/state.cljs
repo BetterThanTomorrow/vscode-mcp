@@ -1,7 +1,11 @@
 (ns vscode-mcp.lifecycle.state
   "Lifecycle state and config helpers — no VS Code API touched here.
-   Re-exported from `vscode-mcp.lifecycle`, which is the namespace consumers
-   should actually require."
+   `init-state`, `running?`, `server-info`, `create-config`, and
+   `should-call-register-server?` are re-exported from `vscode-mcp.lifecycle`,
+   which is the namespace consumers should actually require.
+
+   `port-file-present?` is internal — used only by `vscode-mcp.lifecycle`
+   itself, not re-exported, not part of the consumer API."
   (:require
    [vscode-mcp.stdio-config :as stdio-config]))
 

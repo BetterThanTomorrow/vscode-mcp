@@ -19,7 +19,7 @@
 (def create-config state/create-config)
 (def should-call-register-server? state/should-call-register-server?)
 
-(defn cursor-mode?
+(defn- cursor-mode?
   "Whether Cursor auto-registration is both enabled and possible right now."
   [{:mcp/keys [auto-register?]}]
   (and (cursor/cursor-mcp-available?) (boolean auto-register?)))

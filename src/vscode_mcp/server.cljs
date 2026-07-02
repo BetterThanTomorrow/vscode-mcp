@@ -1,4 +1,14 @@
 (ns vscode-mcp.server
+  "Socket transport for the MCP server.
+
+   Consumer API: `send-notification-params`, for pushing server-initiated
+   notifications to connected clients.
+
+   `start-server!+` / `stop-server!+` are internal — used by
+   `vscode-mcp.lifecycle`, which owns port-file/Cursor orchestration around
+   them. Consumers driving their own start/stop without `vscode-mcp.lifecycle`
+   can still call them directly, but most consumers should use
+   `vscode-mcp.lifecycle` instead."
   (:require
    ["fs" :as fs]
    ["net" :as net]

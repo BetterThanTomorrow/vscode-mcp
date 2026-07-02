@@ -154,11 +154,11 @@ For example, given this `package.json` declaration:
   (lifecycle/running? @!lifecycle-state))
 ```
 
-`vscode-mcp.lifecycle` and `vscode-mcp.manual-setup.dialog` are the only namespaces that touch the live `vscode` module or open real sockets/dialogs (along with `vscode-mcp.server` and `vscode-mcp.cursor`, which they wrap). Everything else — `stdio-config`, `manifest`, `responses`, `policy`, and the pure halves `vscode-mcp.manual-setup` and `vscode-mcp.lifecycle.pure` — is plain data-in/data-out ClojureScript, unit-tested without ever requiring `"vscode"`.
+`vscode-mcp.lifecycle` and `vscode-mcp.manual-setup.dialog` are the only namespaces that touch the live `vscode` module or open real sockets/dialogs (along with `vscode-mcp.server` and `vscode-mcp.cursor`, which they wrap). Everything else — `stdio-config`, `manifest`, `responses`, `policy`, and the pure halves `vscode-mcp.manual-setup` and `vscode-mcp.lifecycle.state` — is plain data-in/data-out ClojureScript, unit-tested without ever requiring `"vscode"`.
 
 **Settings and transport options.** Declare setting names and defaults in your extension's `package.json`; read them in `build-lifecycle-config` via `workspace.getConfiguration`. `vscode-mcp` does not read VS Code settings or supply host/port defaults — consumers pass explicit values (including required `:server/host`). Do not cache the lifecycle config for the whole activation: rebuild it on each `maybe-start!+`, `start!+`, and `stop!+` call. Transport settings such as host and port then take effect on the **next server start**.
 
-If you'd rather orchestrate start/stop yourself, the lower-level building blocks `vscode-mcp.server/start-server!+` / `stop-server!+` and `vscode-mcp.cursor/register-and-reload-mcp-client!+` / `unregister-mcp-server!+` are still there and used internally by `vscode-mcp.lifecycle` — but most consumers should just use the lifecycle module above.
+If you'd rather orchestrate start/stop yourself, the lower-level building blocks `vscode-mcp.server/start-server!+` / `stop-server!+` and `vscode-mcp.cursor/register-and-reload-mcp-client!+` / `unregister-mcp-server!+` are still there and used internally by `vscode-mcp.lifecycle` — but they exist to serve `vscode-mcp.lifecycle`, not as a documented alternative API; most consumers should just use the lifecycle module above.
 
 ## Too Opinionated for You?
 
