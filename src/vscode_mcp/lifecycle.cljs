@@ -86,13 +86,12 @@
                     (maybe-register!+ config state opts started-server-info cursor-mode?)))
           (p/then (fn [state']
                     (notify! on-starting-changed false)
-                    (if silent?
-                      state'
-                      (p/then (dialog/show-manual-start-dialog!+
-                               (wrapper-path extension-context (server-info state'))
-                               (server-info state')
-                               (select-keys config [:manual-setup/message-suffix]))
-                              (fn [_] state')))))
+                    (when-not silent?
+                      (dialog/show-manual-start-dialog!+
+                       (wrapper-path extension-context (server-info state'))
+                       (server-info state')
+                       (select-keys config [:manual-setup/message-suffix])))
+                    state'))
           (p/catch (fn [e]
                      (notify! on-starting-changed false)
                      (notify! on-error e)
@@ -138,8 +137,6 @@
            (p/then (fn [_]
                      (notify! on-running-changed false nil)
                      (notify! on-stopping-changed false)
-                     (let [next-state (init-state)]
-                       (if silent?
-                         next-state
-                         (p/then (dialog/show-stopped-message!+ {:manual-setup/silent? false})
-                                 (fn [_] next-state)))))))))))
+                     (when-not silent?
+                       (dialog/show-stopped-message!+ {:manual-setup/silent? false}))
+                     (init-state))))))))
