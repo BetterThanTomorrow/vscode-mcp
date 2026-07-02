@@ -1,6 +1,9 @@
 (ns vscode-mcp.manifest-test
   (:require
+   ["fs" :as fs]
+   ["path" :as path]
    [cljs.test :refer [deftest is testing]]
+   [clojure.string :as string]
    [vscode-mcp.manifest :as sut]))
 
 (deftest satisfies-when?-test
@@ -14,6 +17,21 @@
 
   (testing "defaults to true if setting is missing"
     (is (true? (sut/satisfies-when? "config.missingSetting" {})) "returns true when setting is absent")))
+
+(def ^:private skill-fixture-path "stubs/skills/test-skill/SKILL.md")
+
+(defn- test-fixture-extension-path []
+  (some (fn [root]
+          (let [candidate (path/join root skill-fixture-path)]
+            (when (fs/existsSync candidate)
+              root)))
+        [(path/join (js/process.cwd) "test")
+         (path/join (js/process.cwd) "../vscode-mcp/test")
+         (path/join js/__dirname "../test")]))
+
+(defn- mock-skill-context [extension-path]
+  #js {:extensionPath extension-path
+       :extension #js {:packageJSON #js {:contributes #js {:chatSkills #js [#js {:path "stubs/skills/test-skill/SKILL.md"}]}}}})
 
 (defn- mock-context [tools]
   #js {:extension #js {:packageJSON #js {:contributes #js {:languageModelTools tools}}}})
@@ -115,3 +133,38 @@
                                              :tools tools
                                              :resources resources}))
           "combines base-text, tools, and resources with double newlines"))))
+
+(deftest find-skill-resource-by-uri-test
+  (let [resources [{:uri "skill://test-skill" :name "test-skill"}]]
+    (testing "matches canonical URI"
+      (is (= (first resources)
+             (sut/find-skill-resource-by-uri resources "skill://test-skill"))))
+
+    (testing "matches skill://{name}/SKILL.md alias"
+      (is (= (first resources)
+             (sut/find-skill-resource-by-uri resources "skill://test-skill/SKILL.md"))))
+
+    (testing "returns nil for unknown URI"
+      (is (nil? (sut/find-skill-resource-by-uri resources "skill://missing"))))))
+
+(deftest read-resource-test
+  (if-let [extension-path (test-fixture-extension-path)]
+    (let [ctx (mock-skill-context extension-path)]
+      (testing "reads canonical skill URI"
+        (let [result (sut/read-resource ctx "skill://test-skill")]
+          (is (= "skill://test-skill" (:uri result)))
+          (is (string/includes? (:text result) "Test Skill"))))
+
+      (testing "reads skill://{name}/SKILL.md alias and echoes requested URI"
+        (let [result (sut/read-resource ctx "skill://test-skill/SKILL.md")]
+          (is (= "skill://test-skill/SKILL.md" (:uri result)))
+          (is (string/includes? (:text result) "Test Skill"))))
+
+      (testing "returns nil for unknown URI"
+        (is (nil? (sut/read-resource ctx "skill://missing"))))
+
+      (testing "get-resources lists canonical URI only"
+        (let [resources (sut/get-resources ctx)]
+          (is (= 1 (count resources)))
+          (is (= "skill://test-skill" (:uri (first resources)))))))
+    (js/console.warn "Skipping read-resource-test: fixture not found")))

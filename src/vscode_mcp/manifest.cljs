@@ -130,14 +130,21 @@
       (js/console.error "[MCP Manifest] Error getting resources:" (.-message e))
       [])))
 
+(defn find-skill-resource-by-uri [resources uri]
+  (or (some #(when (= (:uri %) uri) %) resources)
+      (when (and (string/starts-with? uri "skill://")
+                 (string/ends-with? uri "/SKILL.md"))
+        (let [canonical-uri (subs uri 0 (- (count uri) (count "/SKILL.md")))]
+          (some #(when (= (:uri %) canonical-uri) %) resources)))))
+
 (defn read-resource
   "Given a resource URI requested via MCP `resources/read`, looks up the resource
    and returns its content. Returns nil if not found."
   [^js context uri & [options]]
   (let [resources (get-resources context options)]
-    (when-let [resource (first (filter #(= (:uri %) uri) resources))]
+    (when-let [resource (find-skill-resource-by-uri resources uri)]
       (try
-        {:uri (:uri resource)
+        {:uri uri
          :mimeType (:mimeType resource)
          :text (fs/readFileSync (:skill-path resource) "utf8")}
         (catch js/Error e
