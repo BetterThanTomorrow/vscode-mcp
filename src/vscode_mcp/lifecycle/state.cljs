@@ -1,6 +1,5 @@
 (ns vscode-mcp.lifecycle.state
-  "Lifecycle state and config helpers — no VS Code API touched here, so this
-   namespace (and its tests) never need to load \"vscode\".
+  "Lifecycle state and config helpers — no VS Code API touched here.
    Re-exported from `vscode-mcp.lifecycle`, which is the namespace consumers
    should actually require."
   (:require
@@ -37,7 +36,7 @@
   (boolean (seq (some-> server-info :server/port-file-uri (unchecked-get "fsPath")))))
 
 (defn should-call-register-server?
-  "Cursor registration dedupe (BD semantics): register when allowed by policy,
+  "Cursor registration dedupe: register when allowed by policy,
    not already registered, and not already called this activation — unless a
    manual (non-silent) start clears the called flag first."
   [state {:lifecycle/keys [silent?]} register-allowed?]
