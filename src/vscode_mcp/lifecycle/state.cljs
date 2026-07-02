@@ -1,5 +1,5 @@
-(ns vscode-mcp.lifecycle.pure
-  "Pure lifecycle state/config logic — no VS Code API touched here, so this
+(ns vscode-mcp.lifecycle.state
+  "Lifecycle state and config helpers — no VS Code API touched here, so this
    namespace (and its tests) never need to load \"vscode\".
    Re-exported from `vscode-mcp.lifecycle`, which is the namespace consumers
    should actually require."

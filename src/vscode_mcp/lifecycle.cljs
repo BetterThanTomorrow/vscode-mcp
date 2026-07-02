@@ -1,28 +1,23 @@
 (ns vscode-mcp.lifecycle
-  "Stateless lifecycle orchestration: `maybe-start!+` / `start!+` / `stop!+`
-   take the current lifecycle state as an explicit argument and resolve
-   directly to the next state. Consumers own storing that state (BD
-   `app-db`, Joyride `!app-db`) — this namespace holds nothing itself.
+  "Lifecycle orchestration: `maybe-start!+` / `start!+` / `stop!+` take the
+   current lifecycle state as an explicit argument and resolve to the next
+   state. Consumers own storing that state.
 
-   Pure state/config helpers (`init-state`, `running?`, `server-info`,
-   `create-config`, `should-call-register-server?`) live in
-   `vscode-mcp.lifecycle.pure` and are re-exported here so this namespace
-   remains the single require for consumers. `vscode-mcp.lifecycle.pure` is
-   the namespace unit tests target, since — unlike this one — it never
-   loads \"vscode\"."
+   State/config helpers are re-exported from `vscode-mcp.lifecycle.state` so
+   this namespace is the single require for consumers."
   (:require
    [promesa.core :as p]
    [vscode-mcp.cursor :as cursor]
-   [vscode-mcp.lifecycle.pure :as pure]
+   [vscode-mcp.lifecycle.state :as state]
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
    [vscode-mcp.server :as server]))
 
-(def init-state pure/init-state)
-(def running? pure/running?)
-(def server-info pure/server-info)
-(def create-config pure/create-config)
-(def should-call-register-server? pure/should-call-register-server?)
+(def init-state state/init-state)
+(def running? state/running?)
+(def server-info state/server-info)
+(def create-config state/create-config)
+(def should-call-register-server? state/should-call-register-server?)
 
 (defn cursor-mode?
   "Whether Cursor auto-registration is both enabled and possible right now."
@@ -43,7 +38,7 @@
         register-allowed? (policy/should-register-with-cursor?
                             {:mcp/auto-register? auto-register?
                              :mcp/cursor-available? cursor-mode?
-                             :mcp/port-file-present? (pure/port-file-present? started-server-info)})
+                             :mcp/port-file-present? (state/port-file-present? started-server-info)})
         state' (assoc state :lifecycle/server-info started-server-info)]
     (if (should-call-register-server? state' opts register-allowed?)
       (-> (cursor/register-and-reload-mcp-client!+

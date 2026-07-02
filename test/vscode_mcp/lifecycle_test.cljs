@@ -1,9 +1,9 @@
 (ns vscode-mcp.lifecycle-test
   (:require
    [cljs.test :refer [deftest is testing]]
-   [vscode-mcp.lifecycle.pure :as sut]))
+   [vscode-mcp.lifecycle.state :as sut]))
 
-;; Targets vscode-mcp.lifecycle.pure directly (not vscode-mcp.lifecycle)
+;; Targets vscode-mcp.lifecycle.state directly (not vscode-mcp.lifecycle)
 ;; so this test file never has to load "vscode". The orchestration flows
 ;; (maybe-start!+, start!+, stop!+, cursor-mode?, and the manual-start
 ;; dialog) are verified live via the connected extension-host REPL instead —
