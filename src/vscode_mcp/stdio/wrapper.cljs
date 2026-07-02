@@ -197,7 +197,7 @@
                                     (js/clearTimeout t)
                                     (vreset! pending-timer nil)))
            destroy-in-flight-socket! (fn []
-                                       (when-let [s @in-flight-socket]
+                                       (when-let [^js s @in-flight-socket]
                                          (.destroy s)
                                          (vreset! in-flight-socket nil)))
            give-up! (fn []
@@ -303,11 +303,11 @@
             (.then (fn [{:keys [socket port connect-host]}]
                      (vreset! wait-phase-done? true)
                      (detach-wait-phase-stdin! stdin wait-handlers)
-                     (doseq [line @stdin-line-queue]
-                       (forward-line-to-socket! socket line))
-                     (vreset! stdin-line-queue [])
                      (let [partial-remainder @stdin-buffer]
                        (vreset! stdin-buffer "")
-                       (handle-stdin stdin socket {:initial-buffer partial-remainder})
                        (handle-socket socket)
+                       (handle-stdin stdin socket {:initial-buffer partial-remainder})
+                       (doseq [line @stdin-line-queue]
+                         (forward-line-to-socket! socket line))
+                       (vreset! stdin-line-queue [])
                        (log-stderr :info "Connected to MCP server on" connect-host "port" port)))))))))
