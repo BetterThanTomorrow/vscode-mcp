@@ -103,7 +103,7 @@
                       (dialog/show-manual-start-dialog!+
                        (wrapper-path extension-context (server-info state'))
                        (server-info state')
-                       (select-keys config [:manual-setup/message-suffix])))
+                       config))
                     state'))
           (p/catch (fn [e]
                      (notify! on-starting-changed false)
@@ -175,5 +175,6 @@
                     (notify! on-running-changed false nil)
                     (notify! on-stopping-changed false)
                     (when-not silent?
-                      (dialog/show-stopped-message!+ {:manual-setup/silent? false}))
+                      (dialog/show-stopped-message!+ (merge config 
+                                                            {:manual-setup/silent? false})))
                     (init-state)))))))

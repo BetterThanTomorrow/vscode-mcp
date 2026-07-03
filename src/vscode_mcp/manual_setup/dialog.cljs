@@ -35,7 +35,7 @@
 (defn show-stopped-message!+
   "Shows \"MCP server stopped\" unless {:manual-setup/silent? true}."
   ([] (show-stopped-message!+ nil))
-  ([{:manual-setup/keys [silent?]}]
+  ([{:manual-setup/keys [silent? extension-name]}]
    (if silent?
      (p/resolved nil)
-     (vscode/window.showInformationMessage "MCP server stopped"))))
+     (vscode/window.showInformationMessage (str extension-name ": MCP server stopped")))))
