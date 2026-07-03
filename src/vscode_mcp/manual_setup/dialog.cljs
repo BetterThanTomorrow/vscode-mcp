@@ -19,17 +19,10 @@
   ([wrapper-path server-info opts]
    (let [message (manual-setup/format-start-message server-info opts)
          {:manual-setup/keys [port port-file]} (manual-setup/copy-command-strings wrapper-path server-info)]
-     (p/let [button (vscode/window.showInformationMessage
-                     message
-                     "Copy command + port"
-                     "Copy command + port-file")]
+     (p/let [button (vscode/window.showInformationMessage message "Copy command")]
        (case button
-         "Copy command + port"
-         (vscode/env.clipboard.writeText port)
-
-         "Copy command + port-file"
+         "Copy command"
          (vscode/env.clipboard.writeText port-file)
-
          nil)))))
 
 (defn show-stopped-message!+
