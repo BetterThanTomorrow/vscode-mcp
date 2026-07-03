@@ -37,6 +37,10 @@
   (when f (apply f args)))
 
 (defn- maybe-register!+
+  "Registers with Cursor right after a server start. `:cursor/server-cold-started?`
+   is always true here: this is only reached from `start-flow!+`, so any Cursor
+   client spawned before this moment could not have found the server and needs
+   the reload kick."
   [config state silent? started-server-info]
   (let [{:cursor/keys [server-name script-relative-path]
          :vscode/keys [extension-context]
@@ -55,6 +59,7 @@
                                  server-name
                                  (:server/instance-slug started-server-info))
             :cursor/script-relative-path script-relative-path
+            :cursor/server-cold-started? true
             :server/port-file-uri (:server/port-file-uri started-server-info)
             :server/host host
             :lifecycle/silent? silent?})
@@ -105,19 +110,35 @@
                      (notify! on-error e)
                      state))))))
 
+(defn- maybe-unregister-stale!+
+  "When Cursor is available but auto-register is disabled, removes any
+   leftover registration for this window from a previous session. Failures
+   (e.g. nothing registered) are ignored."
+  [{:cursor/keys [server-name] :vscode/keys [extension-context] :mcp/keys [auto-register?]}]
+  (if (and (cursor/cursor-mcp-available?) (not auto-register?))
+    (cursor/unregister-mcp-server!+
+     {:cursor/server-name (cursor-config/slugged-server-name
+                           server-name
+                           (cursor/current-instance-slug extension-context))
+      :vscode/extension-context extension-context})
+    (p/resolved nil)))
+
 (defn maybe-start!+
   "Silent activation start: only starts when policy allows it (explicit
    auto-start, or Cursor auto-register with Cursor MCP API available).
+   When auto-register is disabled, unregisters any leftover Cursor
+   registration for this window instead.
    `silent?` controls whether the manual-start dialog is shown once the
    server starts."
   [config state silent?]
   (let [{:mcp/keys [auto-start? auto-register?]} config]
-    (if (or (running? state)
-            (policy/should-auto-start? {:mcp/auto-start? auto-start?
-                                        :mcp/auto-register? auto-register?
-                                        :mcp/cursor-available? (cursor/cursor-mcp-available?)}))
-      (start-flow!+ config state silent?)
-      (p/resolved state))))
+    (p/let [_ (maybe-unregister-stale!+ config)]
+      (if (or (running? state)
+              (policy/should-auto-start? {:mcp/auto-start? auto-start?
+                                          :mcp/auto-register? auto-register?
+                                          :mcp/cursor-available? (cursor/cursor-mcp-available?)}))
+        (start-flow!+ config state silent?)
+        state))))
 
 (defn start!+
   "Manual (command-driven) start: starts unconditionally unless already
@@ -126,9 +147,15 @@
   (start-flow!+ config state silent?))
 
 (defn stop!+
-  "Stops the server, unregistering from Cursor first if registered.
-   `silent?` false also shows the \"MCP server stopped\" message."
-  [config state silent?]
+  "Stops the server. `stop-options` map:
+   `:lifecycle/silent?` — false also shows the \"MCP server stopped\" message.
+   `:cursor/unregister?` (default true) — whether to remove the Cursor
+   registration. Pass false from extension deactivation: unregistering during
+   window shutdown leaves Cursor's restored client record unspawnable next
+   session (instant 'Client closed' error until a manual reload)."
+  [config state {:lifecycle/keys [silent?]
+                 :cursor/keys [unregister?]
+                 :or {unregister? true}}]
   (if-not (running? state)
     (p/resolved state)
     (let [{:cursor/keys [server-name]
@@ -137,7 +164,7 @@
            :lifecycle/keys [on-running-changed on-stopping-changed]} config
           info (server-info state)]
       (notify! on-stopping-changed true)
-      (-> (if (:lifecycle/cursor-registered? state)
+      (-> (if (and unregister? (:lifecycle/cursor-registered? state))
             (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
                                                                   server-name
                                                                   (:server/instance-slug info))

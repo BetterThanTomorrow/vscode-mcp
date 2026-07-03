@@ -13,8 +13,13 @@
 
 (defn should-reload-client?
   "Whether to call mcp.reloadClient after registerServer.
-   Manual start (silent? false or missing) always reloads; silent activations
-   reload when the registration config changed or after unregister+register."
+   Manual start (silent? false or missing) always reloads. Silent activations
+   reload when the server was just cold-started (a client spawned by Cursor
+   before the server was up needs a kick to recover from its failed connect),
+   when the registration config changed, or after unregister+register."
   [{:lifecycle/keys [silent?]
-    :cursor/keys [config-changed? pending-reload-after-unregister?]}]
-  (or (not silent?) config-changed? pending-reload-after-unregister?))
+    :cursor/keys [server-cold-started? config-changed? pending-reload-after-unregister?]}]
+  (or (not silent?)
+      server-cold-started?
+      config-changed?
+      pending-reload-after-unregister?))

@@ -34,6 +34,11 @@
     (is (not (sut/should-reload-client? {:lifecycle/silent? true
                                          :cursor/config-changed? false}))))
 
+  (testing "silent activation after a server cold start reloads"
+    (is (sut/should-reload-client? {:lifecycle/silent? true
+                                    :cursor/server-cold-started? true
+                                    :cursor/config-changed? false})))
+
   (testing "silent activation with unchanged config after unregister reloads"
     (is (sut/should-reload-client? {:lifecycle/silent? true
                                       :cursor/config-changed? false

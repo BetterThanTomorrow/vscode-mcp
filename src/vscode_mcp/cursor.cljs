@@ -37,7 +37,7 @@
                                         .-storageUri
                                         .-fsPath)}))
 
-(defn- last-registered-config-key [server-name]
+(defn last-registered-config-key [server-name]
   (str "vscode-mcp.cursor/last-registered-config:" server-name))
 
 (defn read-last-registered-config
@@ -93,6 +93,57 @@
         (p/catch (fn [_] false)))
     (p/resolved false)))
 
+(def ^:private registered-names-key "vscode-mcp.cursor/registered-names")
+
+(defn- read-registered-names [{:vscode/keys [^js extension-context]}]
+  (when extension-context
+    (js->clj (.get (.-workspaceState extension-context) registered-names-key))))
+
+(defn- write-registered-names!+ [{:vscode/keys [^js extension-context]} names]
+  (if extension-context
+    (-> (.update (.-workspaceState extension-context)
+                 registered-names-key
+                 (clj->js names))
+        (p/then (fn [_] {:ok true}))
+        (p/catch (fn [err] {:ok false :error err})))
+    (p/resolved {:ok false :reason :missing-extension-context})))
+
+(defn- unregister-server-raw!+
+  "unregisterServer without the pending-reload bookkeeping — used for
+   sweeping stale names. Failures (e.g. name not registered) are returned,
+   not thrown."
+  [server-name]
+  (if (cursor-mcp-available?)
+    (-> (.unregisterServer (.-mcp (.-cursor vscode)) server-name)
+        (p/then (fn [_] {:ok true :name server-name}))
+        (p/catch (fn [err] {:ok false :name server-name :error err})))
+    (p/resolved {:ok false :reason :cursor-api-unavailable})))
+
+(defn cleanup-tracked-registrations!+
+  "Sweeps this workspace's stale Cursor registrations: every name we have
+   ever registered here (tracked list plus names recovered from stored
+   `last-registered-config:*` keys — covers earlier slug formats) except
+   `keep-name` is unregistered and its stored config cleared. The tracked
+   list becomes `[keep-name]`, or `[]` when nil. Pending-reload flags are
+   left alone — the unregister flow depends on them surviving this sweep."
+  [{:vscode/keys [^js extension-context] :as options} keep-name]
+  (let [tracked (set (read-registered-names options))
+        from-config-keys (when extension-context
+                           (keep (fn [k]
+                                   (let [prefix "vscode-mcp.cursor/last-registered-config:"]
+                                     (when (.startsWith k prefix)
+                                       (subs k (count prefix)))))
+                                 (.keys (.-workspaceState extension-context))))
+        stale (remove #{keep-name} (into tracked from-config-keys))]
+    (p/let [_ (p/all (map unregister-server-raw!+ stale))
+            _ (p/all (map (fn [stale-name]
+                            (when extension-context
+                              (.update (.-workspaceState extension-context)
+                                       (last-registered-config-key stale-name)
+                                       js/undefined)))
+                          stale))]
+      (write-registered-names!+ options (if keep-name [keep-name] [])))))
+
 (defn- reload-mcp-client!+
   [{:vscode/keys [extension-context] :cursor/keys [server-name]}]
   (let [identifier (config/mcp-client-identifier {:vscode/extension-context extension-context
@@ -108,7 +159,20 @@
           (p/then (fn [result] {:ok true :identifier identifier :result result}))
           (p/catch (fn [err] {:ok false :identifier identifier :error err}))))))
 
-(defn- register-mcp-server!+ [options]
+(defn- prepare-registration!+
+  "Repairs Cursor's restored client state before registering this server.
+   Window reload can leave a same-name restored client in an unspawnable
+   'Client closed' state; removing it first gives registerServer a clean
+   record to create. The stale-name sweep also prevents slug migrations from
+   accumulating old registrations."
+  [options]
+  (p/let [_ (unregister-server-raw!+ (:cursor/server-name options))
+          _ (cleanup-tracked-registrations!+ options nil)
+          _ (mark-pending-reload-after-unregister!+ options)]
+    {:ok true}))
+
+(defn- register-mcp-server!+
+  [options]
   (p/let [{:keys [ok config reason]} (config/build-cursor-mcp-registration-config options)
           port-file-uri (:server/port-file-uri options)
           ready? (port-file-ready?+ port-file-uri)]
@@ -123,9 +187,10 @@
       (p/resolved {:ok false :reason :port-file-not-ready})
 
       :else
-      (-> (.registerServer (.-mcp (.-cursor vscode)) (clj->js config))
-          (p/then (fn [_] {:ok true :config config}))
-          (p/catch (fn [err] {:ok false :error err :config config}))))))
+      (p/let [_ (prepare-registration!+ options)]
+        (-> (.registerServer (.-mcp (.-cursor vscode)) (clj->js config))
+            (p/then (fn [_] {:ok true :config config}))
+            (p/catch (fn [err] {:ok false :error err :config config})))))))
 
 (defn register-and-reload-mcp-client!+ [options]
   (p/let [register-result (register-mcp-server!+ options)]
@@ -136,8 +201,10 @@
               config-changed? (config/registration-config-changed? stored config)
               pending-reload-after-unregister? (read-pending-reload-after-unregister? options)
               _ (store-last-registered-config!+ options config)
+              _ (cleanup-tracked-registrations!+ options (:cursor/server-name options))
               reload-result (if (policy/should-reload-client?
                                  {:lifecycle/silent? (:lifecycle/silent? options)
+                                  :cursor/server-cold-started? (:cursor/server-cold-started? options)
                                   :cursor/config-changed? config-changed?
                                   :cursor/pending-reload-after-unregister? pending-reload-after-unregister?})
                               (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
@@ -152,8 +219,10 @@
     (p/resolved {:ok false :reason :cursor-api-unavailable})
 
     :else
-    (-> (.unregisterServer (.-mcp (.-cursor vscode)) (:cursor/server-name options))
-        (p/then (fn [_]
-                  (p/let [_ (mark-pending-reload-after-unregister!+ options)]
-                    {:ok true})))
-        (p/catch (fn [err] {:ok false :error err})))))
+    (-> (unregister-server-raw!+ (:cursor/server-name options))
+        (p/then (fn [result]
+                  (if (:ok result)
+                    (p/let [_ (mark-pending-reload-after-unregister!+ options)
+                            _ (cleanup-tracked-registrations!+ options nil)]
+                      {:ok true})
+                    result))))))
