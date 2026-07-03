@@ -120,12 +120,12 @@
     (p/resolved {:ok false :reason :cursor-api-unavailable})))
 
 (defn cleanup-tracked-registrations!+
-  "Sweeps this workspace's stale Cursor registrations: every name we have
-   ever registered here (tracked list plus names recovered from stored
-   `last-registered-config:*` keys — covers earlier slug formats) except
-   `keep-name` is unregistered and its stored config cleared. The tracked
-   list becomes `[keep-name]`, or `[]` when nil. Pending-reload flags are
-   left alone — the unregister flow depends on them surviving this sweep."
+  "Sweeps stale Cursor registrations for this workspaces. Normal operation has 
+   one current name; this mainly cleans up names left by slug-format changes 
+   or folder-less windows. Every name except `keep-name` is unregistered and
+   its stored config cleared. The tracked list becomes `[keep-name]`, or `[]`
+   when nil. Pending-reload flags are left alone — the unregister flow depends
+   on them surviving this sweep."
   [{:vscode/keys [^js extension-context] :as options} keep-name]
   (let [tracked (set (read-registered-names options))
         from-config-keys (when extension-context
