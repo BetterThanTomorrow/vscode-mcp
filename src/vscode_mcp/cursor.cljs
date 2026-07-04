@@ -206,7 +206,9 @@
                                  {:lifecycle/silent? (:lifecycle/silent? options)
                                   :cursor/server-cold-started? (:cursor/server-cold-started? options)
                                   :cursor/config-changed? config-changed?
-                                  :cursor/pending-reload-after-unregister? pending-reload-after-unregister?})
+                                  :cursor/pending-reload-after-unregister? pending-reload-after-unregister?
+                                  :cursor/needs-cursor-reregister? (:cursor/needs-cursor-reregister? options)
+                                  :cursor/force-reload? (:cursor/force-reload? options)})
                               (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
                                                     :cursor/server-name (:cursor/server-name options)})
                               (p/resolved {:ok true :skipped :unchanged-config}))

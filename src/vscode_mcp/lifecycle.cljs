@@ -16,6 +16,7 @@
   {:lifecycle/server-info nil
    :lifecycle/cursor-registered? false
    :lifecycle/cursor-register-called? false
+   :lifecycle/needs-cursor-reregister? false
    :lifecycle/starting? false
    :lifecycle/stopping? false})
 

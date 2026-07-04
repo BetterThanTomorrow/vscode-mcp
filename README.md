@@ -148,12 +148,33 @@ For example, given this `package.json` declaration:
       (.then (fn [state] (reset! !lifecycle-state state)))))
 
 (defn stop-command! [^js context]
-  (-> (lifecycle/stop!+ (build-lifecycle-config context) @!lifecycle-state false)
+  (-> (lifecycle/stop!+ (build-lifecycle-config context) @!lifecycle-state
+                        {:lifecycle/silent? false})
       (.then (fn [state] (reset! !lifecycle-state state)))))
+
+(defn register-with-cursor-command! [^js context]
+  (-> (lifecycle/register-or-start-with-cursor!+ (build-lifecycle-config context) @!lifecycle-state)
+      (.then (fn [result]
+               (when (:ok result)
+                 (reset! !lifecycle-state (:state result)))
+               result))))
 
 (defn server-running? []
   (lifecycle/running? @!lifecycle-state))
 ```
+
+**Stop options map.** `stop!+` accepts a map (or legacy boolean `silent?`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `:lifecycle/silent?` | `true` | When false, shows the "MCP server stopped" message |
+| `:cursor/unregister?` | `true` | When false, keeps the Cursor registration (use on extension deactivate) |
+
+Manual stop with unregister sets `:lifecycle/needs-cursor-reregister?` on the returned init-state so the next start forces client reload.
+
+**Manual Cursor registration.** `register-with-cursor!+` requires a running server (warm repair). `register-or-start-with-cursor!+` implements Option C semantics: when `:mcp/auto-register?` is false it starts the server if needed then registers; when auto-register is on it is repair-only (server must already be running). Both resolve to `{:ok … :state … :reason …}`.
+
+**Socket readiness.** Before Cursor registration on start, `start-flow!+` probes TCP connect to the assigned port (up to 5 s). A timeout logs a warning and registration proceeds anyway.
 
 **Settings and transport options.** Declare setting names and defaults in your extension's `package.json`; read them in `build-lifecycle-config` via `workspace.getConfiguration`. `vscode-mcp` does not read VS Code settings or supply host/port defaults — consumers pass explicit values (including required `:server/host`). Do not cache the lifecycle config for the whole activation: rebuild it on each `maybe-start!+`, `start!+`, and `stop!+` call. Transport settings such as host and port then take effect on the **next server start**.
 
@@ -180,7 +201,11 @@ The bundled `vscode-mcp.stdio.wrapper` script waits for the extension host to st
 - **Persistence:** last registered config stored in `workspaceState` under `vscode-mcp.cursor/last-registered-config:{server-name}` (workspace scope because the port-file path in `:args` is workspace-derived). After `unregisterServer`, a `vscode-mcp.cursor/pending-reload-after-unregister:{server-name}` flag is set so the next register triggers reload even when config is unchanged.
 - **`:lifecycle/silent?`:** passed on `register-and-reload-mcp-client!+`; missing or `nil` ⇒ always reload (backward-safe default matching prior behavior).
 - **Skipped reload result:** `{:ok true :skipped :unchanged-config}` when reload is skipped (`:ok true` is load-bearing for consumers that warn on failed reload).
-- **`should-reload-client?` policy:** reload on manual start (`silent?` false/nil), when the registered config changed, or after unregister+register (pending-reload flag); silent activation with unchanged config and no prior unregister skips reload.
+- **`should-reload-client?` policy:** reload on manual start (`silent?` false/nil), when the registered config changed, after unregister+register (pending-reload flag), when `:cursor/needs-cursor-reregister?` is set after manual stop unregister, or when `:cursor/force-reload?` is passed; silent activation with unchanged config and no prior unregister skips reload.
+
+## In-Session Stop→Start
+
+Manual stop (`:cursor/unregister?` true) unregisters from Cursor, stops the socket, and returns init-state with `:lifecycle/needs-cursor-reregister?` true. The next start waits for socket readiness, registers, and forces client reload via that flag. Extension deactivate should pass `{:cursor/unregister? false}` so Cursor does not restore an unspawnable client record on the next window session. See `mcp-stop-start-cursor-registration-plan.md` in joyride-dev-docs for the full investigation; window-reload stability is covered separately in `mcp-wrapper-retry-and-reload-policy-plan.md`.
 
 ## Limitations & Shortcuts
 

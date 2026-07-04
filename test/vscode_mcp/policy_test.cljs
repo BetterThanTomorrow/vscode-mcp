@@ -44,6 +44,16 @@
                                       :cursor/config-changed? false
                                       :cursor/pending-reload-after-unregister? true})))
 
+  (testing "needs-cursor-reregister reloads on silent path"
+    (is (sut/should-reload-client? {:lifecycle/silent? true
+                                    :cursor/config-changed? false
+                                    :cursor/needs-cursor-reregister? true})))
+
+  (testing "force-reload always reloads"
+    (is (sut/should-reload-client? {:lifecycle/silent? true
+                                    :cursor/config-changed? false
+                                    :cursor/force-reload? true})))
+
   (testing "silent activation with changed config reloads"
     (is (sut/should-reload-client? {:lifecycle/silent? true
                                     :cursor/config-changed? true})))

@@ -18,8 +18,11 @@
    before the server was up needs a kick to recover from its failed connect),
    when the registration config changed, or after unregister+register."
   [{:lifecycle/keys [silent?]
-    :cursor/keys [server-cold-started? config-changed? pending-reload-after-unregister?]}]
-  (or (not silent?)
+    :cursor/keys [server-cold-started? config-changed? pending-reload-after-unregister?
+                  needs-cursor-reregister? force-reload?]}]
+  (or force-reload?
+      (not silent?)
       server-cold-started?
       config-changed?
-      pending-reload-after-unregister?))
+      pending-reload-after-unregister?
+      needs-cursor-reregister?))
