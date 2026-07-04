@@ -40,11 +40,19 @@
   (boolean (seq (some-> server-info :server/port-file-uri (unchecked-get "fsPath")))))
 
 (defn should-call-register-server?
-  "Cursor registration dedupe: register when allowed by policy,
-   not already registered, and not already called this activation — unless a
-   manual (non-silent) start clears the called flag first."
-  [state {:lifecycle/keys [silent?]} register-allowed?]
-  (and register-allowed?
-       (not (:lifecycle/cursor-registered? state))
-       (not (:lifecycle/cursor-register-called?
-             (if silent? state (dissoc state :lifecycle/cursor-register-called?))))))
+  "Cursor registration dedupe: register when allowed by policy and dedupe flags
+   permit it. Manual (`silent?` false/nil) and `:lifecycle/force-register?`
+   always attempt registration — needed after stop+unregister when lifecycle
+   state still says registered, and for the explicit register-with-Cursor command
+   when auto-register is off."
+  [state {:lifecycle/keys [silent? force-register?]} register-allowed?]
+  (let [cleared (if (and silent? (not force-register?))
+                  state
+                  (dissoc state :lifecycle/cursor-register-called?))
+        needs-register? (or force-register?
+                            (not silent?)
+                            (not (:lifecycle/cursor-registered? state)))]
+    (and (or register-allowed? force-register?)
+         needs-register?
+         (or force-register?
+             (not (:lifecycle/cursor-register-called? cleared))))))

@@ -36,42 +36,55 @@
   [f & args]
   (when f (apply f args)))
 
+(defn- normalize-stop-options
+  "Accepts a stop-options map or a legacy boolean `silent?` for backward
+   compatibility with consumers not yet on the map API."
+  [stop-options]
+  (cond
+    (map? stop-options) stop-options
+    (boolean? stop-options) {:lifecycle/silent? stop-options}
+    :else {:lifecycle/silent? true}))
+
 (defn- maybe-register!+
   "Registers with Cursor right after a server start. `:cursor/server-cold-started?`
    is always true here: this is only reached from `start-flow!+`, so any Cursor
    client spawned before this moment could not have found the server and needs
    the reload kick."
-  [config state silent? started-server-info]
-  (let [{:cursor/keys [server-name script-relative-path]
-         :vscode/keys [extension-context]
-         :mcp/keys [auto-register?]
-         :server/keys [host]
-         :lifecycle/keys [on-cursor-registered on-cursor-registration-failed]} config
-        register-allowed? (policy/should-register-with-cursor?
-                           {:mcp/auto-register? auto-register?
-                            :mcp/cursor-available? (cursor-mode? config)
-                            :mcp/port-file-present? (state/port-file-present? started-server-info)})
-        state' (assoc state :lifecycle/server-info started-server-info)]
-    (if (should-call-register-server? state' {:lifecycle/silent? silent?} register-allowed?)
-      (-> (cursor/register-and-reload-mcp-client!+
-           {:vscode/extension-context extension-context
-            :cursor/server-name (cursor-config/slugged-server-name
-                                 server-name
-                                 (:server/instance-slug started-server-info))
-            :cursor/script-relative-path script-relative-path
-            :cursor/server-cold-started? true
-            :server/port-file-uri (:server/port-file-uri started-server-info)
-            :server/host host
-            :lifecycle/silent? silent?})
-          (p/then (fn [result]
-                    (if (:ok result)
-                      (do (notify! on-cursor-registered result)
-                          (assoc state'
-                                 :lifecycle/cursor-registered? true
-                                 :lifecycle/cursor-register-called? true))
-                      (do (notify! on-cursor-registration-failed result)
-                          (assoc state' :lifecycle/cursor-register-called? true))))))
-      (p/resolved state'))))
+  ([config state silent? started-server-info]
+   (maybe-register!+ config state silent? started-server-info {}))
+  ([config state silent? started-server-info register-opts]
+   (let [{:lifecycle/keys [force-register?]} register-opts
+         {:cursor/keys [server-name script-relative-path]
+          :vscode/keys [extension-context]
+          :mcp/keys [auto-register?]
+          :server/keys [host]
+          :lifecycle/keys [on-cursor-registered on-cursor-registration-failed]} config
+         register-allowed? (or force-register?
+                               (policy/should-register-with-cursor?
+                                 {:mcp/auto-register? auto-register?
+                                  :mcp/cursor-available? (cursor-mode? config)
+                                  :mcp/port-file-present? (state/port-file-present? started-server-info)}))
+         state' (assoc state :lifecycle/server-info started-server-info)]
+     (if (should-call-register-server? state' (merge {:lifecycle/silent? silent?} register-opts) register-allowed?)
+       (-> (cursor/register-and-reload-mcp-client!+
+            {:vscode/extension-context extension-context
+             :cursor/server-name (cursor-config/slugged-server-name
+                                   server-name
+                                   (:server/instance-slug started-server-info))
+             :cursor/script-relative-path script-relative-path
+             :cursor/server-cold-started? true
+             :server/port-file-uri (:server/port-file-uri started-server-info)
+             :server/host host
+             :lifecycle/silent? silent?})
+           (p/then (fn [result]
+                     (if (:ok result)
+                       (do (notify! on-cursor-registered result)
+                           (assoc state'
+                                  :lifecycle/cursor-registered? true
+                                  :lifecycle/cursor-register-called? true))
+                       (do (notify! on-cursor-registration-failed result)
+                           (assoc state' :lifecycle/cursor-register-called? true))))))
+       (p/resolved state')))))
 
 (defn- start-flow!+
   [config state silent?]
@@ -146,6 +159,25 @@
   [config state silent?]
   (start-flow!+ config state silent?))
 
+(defn register-with-cursor!+
+  "Register the currently running MCP server with Cursor.
+   Use when `:mcp/auto-register?` is false, or to repair a yellow/stuck client.
+   Server must already be running. Always non-silent so mcp.reloadClient runs.
+   Resolves to {:ok boolean :state lifecycle-state :reason keyword?}."
+  [config state]
+  (if-not (running? state)
+    (p/resolved {:ok false :reason :server-not-running :state state})
+    (p/let [info (server-info state)
+            state' (maybe-register!+
+                     config
+                     (dissoc state :lifecycle/cursor-registered? :lifecycle/cursor-register-called?)
+                     false
+                     info
+                     {:lifecycle/force-register? true})]
+      {:ok (boolean (:lifecycle/cursor-registered? state'))
+       :state state'
+       :reason (when-not (:lifecycle/cursor-registered? state') :registration-failed-or-skipped)})))
+
 (defn stop!+
   "Stops the server. `stop-options` map:
    `:lifecycle/silent?` — false also shows the \"MCP server stopped\" message.
@@ -153,28 +185,29 @@
    registration. Pass false from extension deactivation: unregistering during
    window shutdown leaves Cursor's restored client record unspawnable next
    session (instant 'Client closed' error until a manual reload)."
-  [config state {:lifecycle/keys [silent?]
-                 :cursor/keys [unregister?]
-                 :or {unregister? true}}]
-  (if-not (running? state)
-    (p/resolved state)
-    (let [{:cursor/keys [server-name]
-           :vscode/keys [extension-context]
-           :mcp/keys [on-log]
-           :lifecycle/keys [on-running-changed on-stopping-changed]} config
-          info (server-info state)]
-      (notify! on-stopping-changed true)
-      (-> (if (and unregister? (:lifecycle/cursor-registered? state))
-            (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
-                                                                  server-name
-                                                                  (:server/instance-slug info))
-                                             :vscode/extension-context extension-context})
-            (p/resolved true))
-          (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))
-          (p/then (fn [_]
-                    (notify! on-running-changed false nil)
-                    (notify! on-stopping-changed false)
-                    (when-not silent?
-                      (dialog/show-stopped-message!+ (merge config 
-                                                            {:manual-setup/silent? false})))
-                    (init-state)))))))
+  [config state stop-options]
+  (let [{:lifecycle/keys [silent?]
+         :cursor/keys [unregister?]
+         :or {unregister? true}} (normalize-stop-options stop-options)]
+    (if-not (running? state)
+      (p/resolved state)
+      (let [{:cursor/keys [server-name]
+             :vscode/keys [extension-context]
+             :mcp/keys [on-log]
+             :lifecycle/keys [on-running-changed on-stopping-changed]} config
+            info (server-info state)]
+        (notify! on-stopping-changed true)
+        (-> (if (and unregister? (:lifecycle/cursor-registered? state))
+              (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
+                                                                    server-name
+                                                                    (:server/instance-slug info))
+                                               :vscode/extension-context extension-context})
+              (p/resolved true))
+            (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))
+            (p/then (fn [_]
+                      (notify! on-running-changed false nil)
+                      (notify! on-stopping-changed false)
+                      (when-not silent?
+                        (dialog/show-stopped-message!+ (merge config
+                                                              {:manual-setup/silent? false})))
+                      (init-state))))))))

@@ -76,8 +76,20 @@
          {:lifecycle/silent? false}
          true)))
 
-  (testing "manual start still refuses when already registered"
+  (testing "manual start re-registers even when lifecycle state says registered"
+    (is (sut/should-call-register-server?
+         {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
+         {:lifecycle/silent? false}
+         true)))
+
+  (testing "force-register bypasses policy disallow and registered flag"
+    (is (sut/should-call-register-server?
+         {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
+         {:lifecycle/silent? true :lifecycle/force-register? true}
+         false)))
+
+  (testing "silent start still skips when already registered"
     (is (not (sut/should-call-register-server?
               {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
-              {:lifecycle/silent? false}
+              {:lifecycle/silent? true}
               true)))))
