@@ -187,7 +187,9 @@
       (p/resolved {:ok false :reason :port-file-not-ready})
 
       :else
-      (p/let [_ (prepare-registration!+ options)]
+      (p/let [_ (if (:cursor/skip-prepare-registration? options)
+                   (p/resolved {:ok true})
+                   (prepare-registration!+ options))]
         (-> (.registerServer (.-mcp (.-cursor vscode)) (clj->js config))
             (p/then (fn [_] {:ok true :config config}))
             (p/catch (fn [err] {:ok false :error err :config config})))))))
@@ -212,6 +214,11 @@
                               (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
                                                     :cursor/server-name (:cursor/server-name options)})
                               (p/resolved {:ok true :skipped :unchanged-config}))
+              _ (when (and (:cursor/needs-cursor-reregister? options)
+                           (:ok reload-result))
+                  (p/delay 750)
+                  (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
+                                        :cursor/server-name (:cursor/server-name options)}))
               _ (clear-pending-reload-after-unregister!+ options)]
         (assoc register-result :reload reload-result)))))
 

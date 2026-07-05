@@ -75,7 +75,9 @@
                                   :mcp/cursor-available? (cursor-mode? config)
                                   :mcp/port-file-present? (state/port-file-present? started-server-info)}))
          state' (assoc state :lifecycle/server-info started-server-info)
-         cursor-opts (register-cursor-options state' register-opts)]
+         cursor-opts (register-cursor-options state' register-opts)
+         needs-reregister? (:lifecycle/needs-cursor-reregister? state')
+         registration-silent? (if needs-reregister? false silent?)]
      (if (should-call-register-server? state' (merge {:lifecycle/silent? silent?} register-opts) register-allowed?)
        (-> (cursor/register-and-reload-mcp-client!+
             (merge {:vscode/extension-context extension-context
@@ -85,8 +87,10 @@
                     :cursor/script-relative-path script-relative-path
                     :server/port-file-uri (:server/port-file-uri started-server-info)
                     :server/host host
-                    :lifecycle/silent? silent?}
-                   cursor-opts))
+                    :lifecycle/silent? registration-silent?}
+                   cursor-opts
+                   (when needs-reregister?
+                     {:cursor/skip-prepare-registration? true})))
            (p/then (fn [result]
                      (if (:ok result)
                        (do (notify! on-cursor-registered result)
@@ -230,30 +234,21 @@
 
 (defn stop!+
   "Stops the server. `stop-options` map:
-   `:lifecycle/silent?` — false also shows the \"MCP server stopped\" message.
-   `:cursor/unregister?` (default true) — whether to remove the Cursor
-   registration. Pass false from extension deactivation: unregistering during
-   window shutdown leaves Cursor's restored client record unspawnable next
-   session (instant 'Client closed' error until a manual reload)."
+   `:lifecycle/silent?` — false also shows the \"MCP server stopped\" message."
   [config state stop-options]
-  (let [{:lifecycle/keys [silent?]
-         :cursor/keys [unregister?]
-         :or {unregister? true}} (normalize-stop-options stop-options)]
+  (let [{:lifecycle/keys [silent?]} (normalize-stop-options stop-options)]
     (if-not (running? state)
       (p/resolved state)
       (let [{:cursor/keys [server-name]
              :vscode/keys [extension-context]
              :mcp/keys [on-log]
              :lifecycle/keys [on-running-changed on-stopping-changed]} config
-            info (server-info state)
-            unregistered? (and unregister? (:lifecycle/cursor-registered? state))]
+            info (server-info state)]
         (notify! on-stopping-changed true)
-        (-> (if unregistered?
-              (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
-                                                                    server-name
-                                                                    (:server/instance-slug info))
-                                               :vscode/extension-context extension-context})
-              (p/resolved true))
+        (-> (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
+                                                                  server-name
+                                                                  (:server/instance-slug info))
+                                             :vscode/extension-context extension-context})
             (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))
             (p/then (fn [_]
                       (notify! on-running-changed false nil)
@@ -261,5 +256,4 @@
                       (when-not silent?
                         (dialog/show-stopped-message!+ (merge config
                                                               {:manual-setup/silent? false})))
-                      (cond-> (init-state)
-                        unregistered? (assoc :lifecycle/needs-cursor-reregister? true)))))))))
+                      (assoc (init-state) :lifecycle/needs-cursor-reregister? true))))))))

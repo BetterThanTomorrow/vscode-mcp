@@ -134,7 +134,7 @@ For example, given this `package.json` declaration:
       (.then (fn [state] (reset! !lifecycle-state state)))))
 
 (defn deactivate []
-  (-> (lifecycle/stop!+ (build-lifecycle-config nil) @!lifecycle-state true) ; no "MCP server stopped" message
+  (-> (lifecycle/stop!+ (build-lifecycle-config nil) @!lifecycle-state {:lifecycle/silent? true})
       (.then (fn [state] (reset! !lifecycle-state state)))))
 ```
 
@@ -168,9 +168,8 @@ For example, given this `package.json` declaration:
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `:lifecycle/silent?` | `true` | When false, shows the "MCP server stopped" message |
-| `:cursor/unregister?` | `true` | When false, keeps the Cursor registration (use on extension deactivate) |
 
-Manual stop with unregister sets `:lifecycle/needs-cursor-reregister?` on the returned init-state so the next start forces client reload.
+Stop always unregisters from Cursor (best-effort) and sets `:lifecycle/needs-cursor-reregister?` on the returned init-state so the next start forces client reload.
 
 **Manual Cursor registration.** `register-with-cursor!+` requires a running server (warm repair). `register-or-start-with-cursor!+` implements Option C semantics: when `:mcp/auto-register?` is false it starts the server if needed then registers; when auto-register is on it is repair-only (server must already be running). Both resolve to `{:ok … :state … :reason …}`.
 
@@ -205,7 +204,7 @@ The bundled `vscode-mcp.stdio.wrapper` script waits for the extension host to st
 
 ## In-Session Stop→Start
 
-Manual stop (`:cursor/unregister?` true) unregisters from Cursor, stops the socket, and returns init-state with `:lifecycle/needs-cursor-reregister?` true. The next start waits for socket readiness, registers, and forces client reload via that flag. Extension deactivate should pass `{:cursor/unregister? false}` so Cursor does not restore an unspawnable client record on the next window session. See `mcp-stop-start-cursor-registration-plan.md` in joyride-dev-docs for the full investigation; window-reload stability is covered separately in `mcp-wrapper-retry-and-reload-policy-plan.md`.
+Stop always unregisters from Cursor (best-effort), then stops the socket, and returns init-state with `:lifecycle/needs-cursor-reregister?` true. The next start waits for socket readiness, registers, and forces client reload via that flag. Extension deactivate uses silent stop-options `{:lifecycle/silent? true}`. See `mcp-stop-start-cursor-registration-plan.md` in joyride-dev-docs for the full investigation; window-reload stability is covered separately in `mcp-wrapper-retry-and-reload-policy-plan.md`.
 
 ## Limitations & Shortcuts
 
