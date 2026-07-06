@@ -17,6 +17,7 @@
    :lifecycle/cursor-registered? false
    :lifecycle/cursor-register-called? false
    :lifecycle/needs-cursor-reregister? false
+   :lifecycle/stop-generation 0
    :lifecycle/starting? false
    :lifecycle/stopping? false})
 

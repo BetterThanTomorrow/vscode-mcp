@@ -24,3 +24,11 @@
       (is (= 1664 (:server/assigned-port result)))
       (is (= uri (:server/port-file-uri result)))
       (is (= "localhost" (:server/host result))))))
+
+(deftest discovery-request-test
+  (testing "tools/list and resources/list count as discovery"
+    (is (sut/discovery-request? "tools/list"))
+    (is (sut/discovery-request? "resources/list")))
+  (testing "other methods do not"
+    (is (not (sut/discovery-request? "initialize")))
+    (is (not (sut/discovery-request? "tools/call")))))

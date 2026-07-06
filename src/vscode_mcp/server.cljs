@@ -81,6 +81,13 @@
 (defn- create-error-response [id code message]
   {:jsonrpc "2.0" :id id :error {:code code :message message}})
 
+(defn- maybe-resolve-discovery!
+  [{:server/keys [discovery-seen? discovery-deferred]} method]
+  (when (server-info/discovery-request? method)
+    (when (and discovery-seen? discovery-deferred
+               (compare-and-set! discovery-seen? false true))
+      (p/resolve! discovery-deferred true))))
+
 (defn- process-segment [{:mcp/keys [on-request] :as options} segment]
   (let [request-json (string/trim segment)]
     (if (string/blank? request-json)
@@ -93,6 +100,7 @@
             (do-log options :error "[Server] Error parsing request JSON segment:" (:message parsed) {:json (:json parsed)})
             (create-error-response nil -32700 "Parse error"))
           (do
+            (maybe-resolve-discovery! options (:method parsed))
             (do-log options :debug "[Server] Processing request for method:" (:method parsed))
             (if on-request
               (on-request parsed)
@@ -205,7 +213,9 @@
         runtime-options (merge options
                                {:server/host server-host
                                 :server/active-sockets (atom #{})
-                                :server/socket-id-counter (atom 0)})]
+                                :server/socket-id-counter (atom 0)
+                                :server/discovery-deferred (p/deferred)
+                                :server/discovery-seen? (atom false)})]
     (p/let [server-info+ (start-socket-server!+ runtime-options)
             assigned-port (:server/assigned-port server-info+)]
       (if port-file-uri
@@ -260,3 +270,20 @@
         (p/catch (fn [err]
                    (do-log options :error "[Server] Error during server shutdown:" err)
                    false)))))
+
+(defn wait-for-mcp-discovery!+
+  "Returns a promise resolving to true when the client has sent tools/list or
+   resources/list, false on timeout. Immediate true if discovery already seen."
+  [{:server/keys [discovery-seen? discovery-deferred] :mcp/keys [on-log]} opts]
+  (let [timeout-ms (or (:discovery/timeout-ms opts) 10000)]
+    (if (and discovery-seen? @discovery-seen?)
+      (p/resolved true)
+      (if-not discovery-deferred
+        (p/resolved false)
+        (-> (p/race [discovery-deferred (p/delay timeout-ms ::timeout)])
+            (p/then (fn [result]
+                      (if (= result ::timeout)
+                        (do (when on-log
+                              (on-log :warn "[Server] MCP discovery wait timed out after" timeout-ms "ms"))
+                            false)
+                        true))))))))

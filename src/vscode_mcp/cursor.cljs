@@ -10,8 +10,10 @@
    (`start!+`/`maybe-start!+` no-op once running, so there's no other
    entry point for that).
 
-   `unregister-mcp-server!+` is internal — used by `vscode-mcp.core`'s
-   stop flow only."
+   `unregister-mcp-server!+` is internal — used by prepare internals and
+   stale-unregister flows.
+
+   `teardown-cursor-registration!+` is used by `vscode-mcp.core`'s stop flow."
   (:require
    ["vscode" :as vscode]
    [vscode-mcp.cursor-config :as config]
@@ -187,38 +189,38 @@
       (p/resolved {:ok false :reason :port-file-not-ready})
 
       :else
-      (p/let [_ (if (:cursor/skip-prepare-registration? options)
-                   (p/resolved {:ok true})
-                   (prepare-registration!+ options))]
-        (-> (.registerServer (.-mcp (.-cursor vscode)) (clj->js config))
-            (p/then (fn [_] {:ok true :config config}))
-            (p/catch (fn [err] {:ok false :error err :config config})))))))
+      (let [register! (fn []
+                        (-> (.registerServer (.-mcp (.-cursor vscode)) (clj->js config))
+                            (p/then (fn [_] {:ok true :config config}))
+                            (p/catch (fn [err] {:ok false :error err :config config}))))]
+        (if (:cursor/needs-cursor-reregister? options)
+          (register!)
+          (p/let [_ (prepare-registration!+ options)]
+            (register!)))))))
 
 (defn register-and-reload-mcp-client!+ [options]
   (p/let [register-result (register-mcp-server!+ options)]
     (if-not (:ok register-result)
       register-result
-      (p/let [config (:config register-result)
+      (p/let [_ (if (and (:cursor/needs-cursor-reregister? options)
+                         (:server/wait-for-discovery!+ options))
+                 ((:server/wait-for-discovery!+ options) {:discovery/timeout-ms 10000})
+                 (p/resolved true))
+              config (:config register-result)
               stored (read-last-registered-config options)
               config-changed? (config/registration-config-changed? stored config)
               pending-reload-after-unregister? (read-pending-reload-after-unregister? options)
+              policy-opts {:lifecycle/silent? (:lifecycle/silent? options)
+                           :cursor/server-cold-started? (:cursor/server-cold-started? options)
+                           :cursor/config-changed? config-changed?
+                           :cursor/pending-reload-after-unregister? pending-reload-after-unregister?
+                           :cursor/needs-cursor-reregister? (:cursor/needs-cursor-reregister? options)
+                           :cursor/force-reload? (:cursor/force-reload? options)}
               _ (store-last-registered-config!+ options config)
               _ (cleanup-tracked-registrations!+ options (:cursor/server-name options))
-              reload-result (if (policy/should-reload-client?
-                                 {:lifecycle/silent? (:lifecycle/silent? options)
-                                  :cursor/server-cold-started? (:cursor/server-cold-started? options)
-                                  :cursor/config-changed? config-changed?
-                                  :cursor/pending-reload-after-unregister? pending-reload-after-unregister?
-                                  :cursor/needs-cursor-reregister? (:cursor/needs-cursor-reregister? options)
-                                  :cursor/force-reload? (:cursor/force-reload? options)})
-                              (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
-                                                    :cursor/server-name (:cursor/server-name options)})
+              reload-result (if (policy/should-reload-client? policy-opts)
+                              (reload-mcp-client!+ options)
                               (p/resolved {:ok true :skipped :unchanged-config}))
-              _ (when (and (:cursor/needs-cursor-reregister? options)
-                           (:ok reload-result))
-                  (p/delay 750)
-                  (reload-mcp-client!+ {:vscode/extension-context (:vscode/extension-context options)
-                                        :cursor/server-name (:cursor/server-name options)}))
               _ (clear-pending-reload-after-unregister!+ options)]
         (assoc register-result :reload reload-result)))))
 
@@ -235,3 +237,9 @@
                             _ (cleanup-tracked-registrations!+ options nil)]
                       {:ok true})
                     result))))))
+
+(defn teardown-cursor-registration!+
+  "Unregister from Cursor. Used by the stop flow after the socket server is down."
+  [options]
+  (p/let [unregister-result (unregister-mcp-server!+ options)]
+    {:unregister unregister-result}))

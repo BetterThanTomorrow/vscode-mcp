@@ -53,4 +53,14 @@
 (deftest slugged-server-name-test
   (testing "suffixes the base name with the instance slug"
     (is (= "joyride-ws-2ypyqk"
-           (sut/slugged-server-name "joyride" "ws-2ypyqk")))))
+           (sut/slugged-server-name "joyride" "ws-2ypyqk"))))
+
+  (testing "generation 0 or nil leaves the 2-arity name unchanged"
+    (is (= "joyride-ws-2ypyqk"
+           (sut/slugged-server-name "joyride" "ws-2ypyqk" 0)))
+    (is (= "joyride-ws-2ypyqk"
+           (sut/slugged-server-name "joyride" "ws-2ypyqk" nil))))
+
+  (testing "positive generation appends -g<generation>"
+    (is (= "joyride-ws-2ypyqk-g2"
+           (sut/slugged-server-name "joyride" "ws-2ypyqk" 2)))))

@@ -29,9 +29,17 @@
 
 (defn slugged-server-name
   "The Cursor `registerServer` name: the base name suffixed with the
-   per-window instance slug."
-  [base-name instance-slug]
-  (str base-name "-" instance-slug))
+   per-window instance slug. When `generation` is a positive int, appends
+   `-g<generation>` because Cursor stalls discovery when the same name is
+   re-registered in one session after unregister; generation bumps after each
+   in-session stop."
+  ([base-name instance-slug]
+   (slugged-server-name base-name instance-slug 0))
+  ([base-name instance-slug generation]
+   (let [base (str base-name "-" instance-slug)]
+     (if (and generation (pos? generation))
+       (str base "-g" generation)
+       base))))
 
 (defn mcp-client-identifier
   "Cursor MCP service identifier for `mcp.reloadClient`.

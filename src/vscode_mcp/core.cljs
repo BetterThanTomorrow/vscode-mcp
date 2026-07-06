@@ -66,7 +66,7 @@
    (let [{:lifecycle/keys [force-register?]} register-opts
          {:cursor/keys [server-name script-relative-path]
           :vscode/keys [extension-context]
-          :mcp/keys [auto-register?]
+          :mcp/keys [auto-register? on-log]
           :server/keys [host]
           :lifecycle/keys [on-cursor-registered on-cursor-registration-failed]} config
          register-allowed? (or force-register?
@@ -83,15 +83,20 @@
             (merge {:vscode/extension-context extension-context
                     :cursor/server-name (cursor-config/slugged-server-name
                                           server-name
-                                          (:server/instance-slug started-server-info))
+                                          (:server/instance-slug started-server-info)
+                                          (:lifecycle/stop-generation state' 0))
                     :cursor/script-relative-path script-relative-path
                     :server/port-file-uri (:server/port-file-uri started-server-info)
                     :server/host host
+                    :server/wait-for-discovery!+ #(server/wait-for-mcp-discovery!+ started-server-info %)
                     :lifecycle/silent? registration-silent?}
-                   cursor-opts
-                   (when needs-reregister?
-                     {:cursor/skip-prepare-registration? true})))
+                   cursor-opts))
            (p/then (fn [result]
+                     (when on-log
+                       (on-log :info (str "[MCP] register-and-reload: "
+                                          (pr-str {:ok (:ok result)
+                                                   :reason (:reason result)
+                                                   :reload (:reload result)}))))
                      (if (:ok result)
                        (do (notify! on-cursor-registered result)
                            (assoc state'
@@ -195,20 +200,23 @@
   "Register the currently running MCP server with Cursor (warm repair path).
    Server must already be running. Always non-silent so mcp.reloadClient runs.
    Resolves to `{:ok :state :reason :register-result}`."
-  [config state]
-  (if-not (running? state)
-    (p/resolved {:ok false :reason :server-not-running :state state})
-    (p/let [info (server-info state)
-            state' (maybe-register!+
-                     config
-                     (dissoc state :lifecycle/cursor-registered? :lifecycle/cursor-register-called?)
-                     false
-                     info
-                     {:lifecycle/force-register? true
-                      :cursor/server-cold-started? false})]
-      {:ok (boolean (:lifecycle/cursor-registered? state'))
-       :state state'
-       :reason (when-not (:lifecycle/cursor-registered? state') :registration-failed-or-skipped)})))
+  ([config state]
+   (register-with-cursor!+ config state {}))
+  ([config state register-opts]
+   (if-not (running? state)
+     (p/resolved {:ok false :reason :server-not-running :state state})
+     (p/let [info (server-info state)
+             state' (maybe-register!+
+                      config
+                      (dissoc state :lifecycle/cursor-registered? :lifecycle/cursor-register-called?)
+                      false
+                      info
+                      (merge {:lifecycle/force-register? true
+                              :cursor/server-cold-started? false}
+                             register-opts))]
+       {:ok (boolean (:lifecycle/cursor-registered? state'))
+        :state state'
+        :reason (when-not (:lifecycle/cursor-registered? state') :registration-failed-or-skipped)}))))
 
 (defn register-or-start-with-cursor!+
   "Option C semantics: when `:mcp/auto-register?` is false, starts the server
@@ -230,7 +238,7 @@
 
     :else
     (p/let [state' (start-flow!+ config state true)]
-      (register-with-cursor!+ config state'))))
+      (register-with-cursor!+ config state' {:cursor/server-cold-started? true}))))
 
 (defn stop!+
   "Stops the server. `stop-options` map:
@@ -243,17 +251,25 @@
              :vscode/keys [extension-context]
              :mcp/keys [on-log]
              :lifecycle/keys [on-running-changed on-stopping-changed]} config
-            info (server-info state)]
+            info (server-info state)
+            current-generation (:lifecycle/stop-generation state 0)]
         (notify! on-stopping-changed true)
-        (-> (cursor/unregister-mcp-server!+ {:cursor/server-name (cursor-config/slugged-server-name
-                                                                  server-name
-                                                                  (:server/instance-slug info))
-                                             :vscode/extension-context extension-context})
-            (p/then (fn [_] (server/stop-server!+ (assoc info :mcp/on-log on-log))))
+        (-> (server/stop-server!+ (assoc info :mcp/on-log on-log))
             (p/then (fn [_]
+                      (cursor/teardown-cursor-registration!+
+                       {:cursor/server-name (cursor-config/slugged-server-name
+                                             server-name
+                                             (:server/instance-slug info)
+                                             current-generation)
+                        :vscode/extension-context extension-context})))
+            (p/then (fn [teardown-result]
+                      (when on-log
+                        (on-log :info (str "[MCP] Stop Cursor teardown: " (pr-str teardown-result))))
                       (notify! on-running-changed false nil)
                       (notify! on-stopping-changed false)
                       (when-not silent?
                         (dialog/show-stopped-message!+ (merge config
                                                               {:manual-setup/silent? false})))
-                      (assoc (init-state) :lifecycle/needs-cursor-reregister? true))))))))
+                      (assoc (init-state)
+                             :lifecycle/needs-cursor-reregister? true
+                             :lifecycle/stop-generation (inc current-generation)))))))))
