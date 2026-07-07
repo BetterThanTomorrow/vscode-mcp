@@ -3,33 +3,6 @@
    [cljs.test :refer [deftest is testing]]
    [vscode-mcp.cursor-config :as sut]))
 
-(def sample-config
-  {:name "test-server"
-   :server {:command "node"
-            :args ["/ext/dist/mcp-server.js" "/ws/.calva/mcp-server/port" "127.0.0.1"]
-            :env {}}})
-
-(deftest registration-config-changed?-test
-  (testing "identical configs are not changed"
-    (is (false? (sut/registration-config-changed? sample-config sample-config))))
-
-  (testing "nil stored means first registration (changed)"
-    (is (sut/registration-config-changed? nil sample-config)))
-
-  (testing "changed wrapper path in :args is changed"
-    (let [stored sample-config
-          fresh (assoc-in sample-config [:server :args 0] "/other/wrapper.js")]
-      (is (sut/registration-config-changed? stored fresh))))
-
-  (testing "changed host in :args is changed"
-    (let [stored sample-config
-          fresh (assoc-in sample-config [:server :args 2] "0.0.0.0")]
-      (is (sut/registration-config-changed? stored fresh))))
-
-  (testing "JSON-round-tripped stored value compares equal to CLJ original"
-    (let [stored (js->clj (clj->js sample-config))]
-      (is (false? (sut/registration-config-changed? stored sample-config))))))
-
 (deftest instance-slug-test
   (testing "workspace path yields deterministic ws- slug"
     (is (re-matches #"ws-[a-z0-9]+"
@@ -51,16 +24,22 @@
               (sut/instance-slug {})))))
 
 (deftest slugged-server-name-test
-  (testing "suffixes the base name with the instance slug"
-    (is (= "joyride-ws-2ypyqk"
-           (sut/slugged-server-name "joyride" "ws-2ypyqk"))))
-
-  (testing "generation 0 or nil leaves the 2-arity name unchanged"
-    (is (= "joyride-ws-2ypyqk"
+  (testing "always includes generation suffix"
+    (is (= "joyride-ws-2ypyqk-g0"
            (sut/slugged-server-name "joyride" "ws-2ypyqk" 0)))
-    (is (= "joyride-ws-2ypyqk"
-           (sut/slugged-server-name "joyride" "ws-2ypyqk" nil))))
-
-  (testing "positive generation appends -g<generation>"
     (is (= "joyride-ws-2ypyqk-g2"
            (sut/slugged-server-name "joyride" "ws-2ypyqk" 2)))))
+
+(deftest mcp-client-identifier-test
+  (testing "builds identifier from extension id and server name"
+    (let [ctx #js {:extension #js {:id "betterthantomorrow.calva-backseat-driver"}}]
+      (is (= "user-betterthantomorrow.calva-backseat-driver-extension-joyride-ws-abc-g0"
+             (sut/mcp-client-identifier {:vscode/extension-context ctx
+                                         :cursor/server-name "joyride-ws-abc-g0"})))))
+
+  (testing "nil without extension context"
+    (is (nil? (sut/mcp-client-identifier {:cursor/server-name "joyride-ws-abc-g0"}))))
+
+  (testing "nil without extension id"
+    (is (nil? (sut/mcp-client-identifier {:vscode/extension-context #js {:extension #js {}}
+                                          :cursor/server-name "joyride-ws-abc-g0"})))))

@@ -29,38 +29,26 @@
   (testing "missing port file"
     (is (not (sut/should-register-with-cursor? {:mcp/auto-register? true :mcp/cursor-available? true :mcp/port-file-present? false})))))
 
-(deftest should-reload-client?-test
-  (testing "silent activation with unchanged config skips reload"
-    (is (not (sut/should-reload-client? {:lifecycle/silent? true
-                                         :cursor/config-changed? false}))))
+(deftest should-register-on-start?-test
+  (testing "all conditions met without skip"
+    (is (sut/should-register-on-start? {:mcp/auto-register? true
+                                        :mcp/cursor-available? true
+                                        :mcp/port-file-present? true
+                                        :lifecycle/skip-register? false})))
 
-  (testing "silent activation after a server cold start reloads"
-    (is (sut/should-reload-client? {:lifecycle/silent? true
-                                    :cursor/server-cold-started? true
-                                    :cursor/config-changed? false})))
+  (testing "skip-register prevents registration even when otherwise allowed"
+    (is (not (sut/should-register-on-start? {:mcp/auto-register? true
+                                              :mcp/cursor-available? true
+                                              :mcp/port-file-present? true
+                                              :lifecycle/skip-register? true}))))
 
-  (testing "silent activation with unchanged config after unregister reloads"
-    (is (sut/should-reload-client? {:lifecycle/silent? true
-                                      :cursor/config-changed? false
-                                      :cursor/pending-reload-after-unregister? true})))
+  (testing "nil skip-register does not prevent registration"
+    (is (sut/should-register-on-start? {:mcp/auto-register? true
+                                          :mcp/cursor-available? true
+                                          :mcp/port-file-present? true})))
 
-  (testing "needs-cursor-reregister reloads on silent path"
-    (is (sut/should-reload-client? {:lifecycle/silent? true
-                                    :cursor/config-changed? false
-                                    :cursor/needs-cursor-reregister? true})))
-
-  (testing "force-reload always reloads"
-    (is (sut/should-reload-client? {:lifecycle/silent? true
-                                    :cursor/config-changed? false
-                                    :cursor/force-reload? true})))
-
-  (testing "silent activation with changed config reloads"
-    (is (sut/should-reload-client? {:lifecycle/silent? true
-                                    :cursor/config-changed? true})))
-
-  (testing "manual start reloads even when config unchanged"
-    (is (sut/should-reload-client? {:lifecycle/silent? false
-                                    :cursor/config-changed? false})))
-
-  (testing "missing silent? treated as manual (backward-safe)"
-    (is (sut/should-reload-client? {:cursor/config-changed? false}))))
+  (testing "inherits should-register-with-cursor? guards"
+    (is (not (sut/should-register-on-start? {:mcp/auto-register? false
+                                              :mcp/cursor-available? true
+                                              :mcp/port-file-present? true
+                                              :lifecycle/skip-register? false})))))

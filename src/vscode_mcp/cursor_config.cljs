@@ -1,8 +1,4 @@
 (ns vscode-mcp.cursor-config
-  "Internal to `vscode-mcp.cursor` — not part of the consumer API.
-
-   Pure config-building helpers with no `\"vscode\"` require, kept separate so
-   they can be unit-tested directly."
   (:require
    ["path" :as path]
    [vscode-mcp.stdio-config :as stdio-config]))
@@ -11,11 +7,6 @@
   (.toString (js/Math.abs (hash s)) 36))
 
 (defn instance-slug
-  "Per-window slug shared by the Cursor server name and port-file path.
-   Workspace windows get `ws-<hash>` (deterministic per workspace path),
-   workspace-less windows get `win-<hash>` from the storage path, and windows
-   with neither get a random `anon-<id>`. The start flow computes this once and
-   carries it in server-info so registration and unregistration agree."
   [{:instance/keys [workspace-root-path storage-uri-path]}]
   (cond
     (seq workspace-root-path)
@@ -27,31 +18,21 @@
     :else
     (str "anon-" (subs (str (random-uuid)) 0 8))))
 
-(defn slugged-server-name
-  "The Cursor `registerServer` name: the base name suffixed with the
-   per-window instance slug. When `generation` is a positive int, appends
-   `-g<generation>` because Cursor stalls discovery when the same name is
-   re-registered in one session after unregister; generation bumps after each
-   in-session stop."
-  ([base-name instance-slug]
-   (slugged-server-name base-name instance-slug 0))
-  ([base-name instance-slug generation]
-   (let [base (str base-name "-" instance-slug)]
-     (if (and generation (pos? generation))
-       (str base "-g" generation)
-       base))))
-
 (defn mcp-client-identifier
-  "Cursor MCP service identifier for `mcp.reloadClient`.
-   Built as user-{extensionId}-extension-{registerServer name}"
   [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
   (when extension-context
     (let [extension-id (some-> extension-context .-extension .-id)]
       (when (seq extension-id)
         (str "user-" extension-id "-extension-" server-name)))))
 
+(defn slugged-server-name
+  "Cursor registerServer name: `<base>-<slug>-g<generation>`.
+   Generation always appears in the name — Cursor stalls when the same name is
+   re-registered in one session after unregister."
+  [base-name instance-slug generation]
+  (str base-name "-" instance-slug "-g" generation))
+
 (defn wrapper-script-path
-  "Absolute path to the stdio wrapper bundled with the running extension instance."
   [{:vscode/keys [^js extension-context] :cursor/keys [script-relative-path]}]
   (when extension-context
     (path/join (.-extensionPath extension-context) script-relative-path)))
@@ -83,23 +64,3 @@
                                                   :cursor/script-relative-path script-relative-path})
       :server/port-file-path port-file-fs-path
       :server/host host})))
-
-(defn- normalize-registration-config
-  "Keywordizes keys and canonicalizes shape so workspaceState JSON round-trip
-   compares equal to the CLJ original."
-  [config]
-  (when config
-    (let [kw (js->clj (clj->js config) :keywordize-keys true)
-          server (:server kw)]
-      {:name (:name kw)
-       :server (when server
-                 {:command (:command server)
-                  :args (vec (or (:args server) []))
-                  :env (or (:env server) {})})})))
-
-(defn registration-config-changed?
-  "True when `stored-config` differs from `fresh-config` over :name and server
-   {:command :args :env}, or when nothing was stored yet (first registration)."
-  [stored-config fresh-config]
-  (not= (normalize-registration-config stored-config)
-        (normalize-registration-config fresh-config)))

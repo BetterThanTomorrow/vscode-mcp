@@ -1,23 +1,14 @@
 (ns vscode-mcp.lifecycle
-  "Lifecycle state and config helpers — no VS Code API touched here.
-   `init-state`, `running?`, `server-info`, `create-config`, and
-   `should-call-register-server?` are re-exported from `vscode-mcp.core`,
-   which is the namespace consumers should actually require.
-
-   `port-file-present?` is internal — used only by `vscode-mcp.core`
-   itself, not re-exported, not part of the consumer API."
+  "Lifecycle state and config helpers — no VS Code API touched here."
   (:require
+   [vscode-mcp.cursor-config :as cursor-config]
    [vscode-mcp.stdio-config :as stdio-config]))
 
 (defn init-state
-  "The zero-value lifecycle state. Consumers own storing/updating this data;
-   `vscode-mcp.core` holds no atom of its own."
   []
   {:lifecycle/server-info nil
-   :lifecycle/cursor-registered? false
-   :lifecycle/cursor-register-called? false
-   :lifecycle/needs-cursor-reregister? false
-   :lifecycle/stop-generation 0
+   :lifecycle/registered-name nil
+   :lifecycle/generation 0
    :lifecycle/starting? false
    :lifecycle/stopping? false})
 
@@ -29,8 +20,11 @@
   [state]
   (:lifecycle/server-info state))
 
+(defn cursor-registered?
+  [state]
+  (some? (:lifecycle/registered-name state)))
+
 (defn create-config
-  "Validates/defaults a lifecycle config map. Pure — returns data, not an instance."
   [opts]
   (merge {:mcp/auto-start? false
           :mcp/auto-register? true
@@ -41,20 +35,20 @@
   [server-info]
   (boolean (seq (some-> server-info :server/port-file-uri (unchecked-get "fsPath")))))
 
-(defn should-call-register-server?
-  "Cursor registration dedupe: register when allowed by policy and dedupe flags
-   permit it. Manual (`silent?` false/nil) and `:lifecycle/force-register?`
-   always attempt registration — needed after stop+unregister when lifecycle
-   state still says registered, and for the explicit register-with-Cursor command
-   when auto-register is off."
-  [state {:lifecycle/keys [silent? force-register?]} register-allowed?]
-  (let [cleared (if (and silent? (not force-register?))
-                  state
-                  (dissoc state :lifecycle/cursor-register-called?))
-        needs-register? (or force-register?
-                            (not silent?)
-                            (not (:lifecycle/cursor-registered? state)))]
-    (and (or register-allowed? force-register?)
-         needs-register?
-         (or force-register?
-             (not (:lifecycle/cursor-register-called? cleared))))))
+(defn registration-intent
+  "Pure plan for the next registerServer call. When already registered, the
+   current name is retired and generation increments so Cursor always sees a
+   fresh name within the session."
+  [state base-name instance-slug]
+  (let [registered (:lifecycle/registered-name state)
+        generation (:lifecycle/generation state 0)]
+    (if registered
+      (let [generation' (inc generation)]
+        {:register/unregister-name registered
+         :register/generation generation'
+         :register/register-name (cursor-config/slugged-server-name
+                                   base-name instance-slug generation')})
+      {:register/unregister-name nil
+       :register/generation generation
+       :register/register-name (cursor-config/slugged-server-name
+                                 base-name instance-slug generation)})))

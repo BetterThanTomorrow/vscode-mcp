@@ -11,18 +11,10 @@
        cursor-available?
        port-file-present?))
 
-(defn should-reload-client?
-  "Whether to call mcp.reloadClient after registerServer.
-   Manual start (silent? false or missing) always reloads. Silent activations
-   reload when the server was just cold-started (a client spawned by Cursor
-   before the server was up needs a kick to recover from its failed connect),
-   when the registration config changed, or after unregister+register."
-  [{:lifecycle/keys [silent?]
-    :cursor/keys [server-cold-started? config-changed? pending-reload-after-unregister?
-                  needs-cursor-reregister? force-reload?]}]
-  (or force-reload?
-      (not silent?)
-      server-cold-started?
-      config-changed?
-      pending-reload-after-unregister?
-      needs-cursor-reregister?))
+(defn should-register-on-start?
+  [{:mcp/keys [auto-register? cursor-available? port-file-present?]
+    :lifecycle/keys [skip-register?]}]
+  (and (should-register-with-cursor? {:mcp/auto-register? auto-register?
+                                      :mcp/cursor-available? cursor-available?
+                                      :mcp/port-file-present? port-file-present?})
+       (not skip-register?)))

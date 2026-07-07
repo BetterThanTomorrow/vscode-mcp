@@ -3,20 +3,14 @@
    [cljs.test :refer [deftest is testing]]
    [vscode-mcp.lifecycle :as sut]))
 
-;; Targets vscode-mcp.lifecycle (pure state/config) directly, not
-;; vscode-mcp.core (orchestration), so this test file never has to load
-;; "vscode". The orchestration flows
-;; (maybe-start!+, start!+, stop!+, cursor-mode?, and the manual-start
-;; dialog) are verified live via the connected extension-host REPL instead —
-;; see the plan's Phase 6.6b verification notes.
-
 (deftest init-state-test
-  (testing "zero-value state is not running and has no dedupe flags set"
+  (testing "zero-value state"
     (let [state (sut/init-state)]
       (is (not (sut/running? state)))
       (is (nil? (sut/server-info state)))
-      (is (false? (:lifecycle/cursor-registered? state)))
-      (is (false? (:lifecycle/cursor-register-called? state))))))
+      (is (nil? (:lifecycle/registered-name state)))
+      (is (= 0 (:lifecycle/generation state)))
+      (is (not (sut/cursor-registered? state))))))
 
 (deftest running-and-server-info-test
   (testing "running? and server-info reflect :lifecycle/server-info"
@@ -43,53 +37,27 @@
   (testing "true when port-file-uri has a non-blank fsPath"
     (is (sut/port-file-present? {:server/port-file-uri #js {:fsPath "/ws/port"}}))))
 
-;; --- Cursor dedupe truth table --------------------------------------------
+(deftest registration-intent-test
+  (testing "fresh state registers at generation 0"
+    (is (= {:register/unregister-name nil
+            :register/generation 0
+            :register/register-name "joyride-ws-abc-g0"}
+           (sut/registration-intent (sut/init-state) "joyride" "ws-abc"))))
 
-(deftest should-call-register-server-test
-  (testing "registers when allowed, not registered, not called, silent"
-    (is (sut/should-call-register-server?
-         {:lifecycle/cursor-registered? false :lifecycle/cursor-register-called? false}
-         {:lifecycle/silent? true}
-         true)))
+  (testing "already registered retires old name and bumps generation"
+    (let [state (assoc (sut/init-state)
+                       :lifecycle/registered-name "joyride-ws-abc-g0"
+                       :lifecycle/generation 0)]
+      (is (= {:register/unregister-name "joyride-ws-abc-g0"
+              :register/generation 1
+              :register/register-name "joyride-ws-abc-g1"}
+             (sut/registration-intent state "joyride" "ws-abc")))))
 
-  (testing "does not register when policy disallows it"
-    (is (not (sut/should-call-register-server?
-              {:lifecycle/cursor-registered? false :lifecycle/cursor-register-called? false}
-              {:lifecycle/silent? true}
-              false))))
-
-  (testing "does not register when already registered"
-    (is (not (sut/should-call-register-server?
-              {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
-              {:lifecycle/silent? true}
-              true))))
-
-  (testing "silent start: does not re-register when already called this activation"
-    (is (not (sut/should-call-register-server?
-              {:lifecycle/cursor-registered? false :lifecycle/cursor-register-called? true}
-              {:lifecycle/silent? true}
-              true))))
-
-  (testing "manual (non-silent) start: clears called-flag, allows re-register attempt"
-    (is (sut/should-call-register-server?
-         {:lifecycle/cursor-registered? false :lifecycle/cursor-register-called? true}
-         {:lifecycle/silent? false}
-         true)))
-
-  (testing "manual start re-registers even when lifecycle state says registered"
-    (is (sut/should-call-register-server?
-         {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
-         {:lifecycle/silent? false}
-         true)))
-
-  (testing "force-register bypasses policy disallow and registered flag"
-    (is (sut/should-call-register-server?
-         {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
-         {:lifecycle/silent? true :lifecycle/force-register? true}
-         false)))
-
-  (testing "silent start still skips when already registered"
-    (is (not (sut/should-call-register-server?
-              {:lifecycle/cursor-registered? true :lifecycle/cursor-register-called? true}
-              {:lifecycle/silent? true}
-              true)))))
+  (testing "successive repairs produce strictly increasing generations"
+    (let [state (assoc (sut/init-state)
+                       :lifecycle/registered-name "joyride-ws-abc-g2"
+                       :lifecycle/generation 2)
+          intent (sut/registration-intent state "joyride" "ws-abc")]
+      (is (= "joyride-ws-abc-g2" (:register/unregister-name intent)))
+      (is (= 3 (:register/generation intent)))
+      (is (= "joyride-ws-abc-g3" (:register/register-name intent))))))
