@@ -34,56 +34,49 @@ Add a build target to your `shadow-cljs.edn`:
 
 ### 3. Wire the Manifest to MCP
 
-Declare tools and skills in `package.json` under `contributes.languageModelTools` and `contributes.chatSkills`. Implement `:mcp/on-request` using `vscode-mcp.manifest` for discovery and `vscode-mcp.responses` for JSON-RPC formatting. You implement `tools/call` yourself — dispatch to the same code your Copilot tools use.
+Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `tools/call` locally and delegate everything else to `vscode-mcp.requests/handle-manifest-request`.
 
 ```clojure
 (require '[vscode-mcp.manifest :as manifest]
+         '[vscode-mcp.requests :as mcp-requests]
          '[vscode-mcp.responses :as responses])
 
 (defn- settings-map []
-  ;; Map VS Code `when` clause strings to booleans for manifest filtering.
   {"config.my-extension.someSetting" true})
 
+(defn- request-opts []
+  {:settings (settings-map)
+   :initialize-opts {:settings (settings-map)}})
+
 (defn handle-mcp-request [{:keys [method params id] :as request} ^js context]
-  (let [settings (settings-map)]
+  (let [opts (request-opts)]
     (case method
-      "initialize"
-      (responses/success-response id
-       (manifest/build-initialize-result context {:settings settings}))
-
-      "tools/list"
-      (responses/success-response id
-       {:tools (manifest/get-tools context {:settings settings})})
-
-      "resources/list"
-      (responses/success-response id
-       {:resources (manifest/get-resources context {:settings settings})})
-
-      "resources/read"
-      (if-let [resource (manifest/read-resource context (:uri params) {:settings settings})]
-        (responses/success-response id {:contents [(dissoc resource :skill-path)]})
-        (responses/error-response id -32602 "Resource not found"))
-
       "tools/call"
       (let [tool-name (:name params)
             args (:arguments params)
-            allowed (manifest/tool-call-allowed? context tool-name {:settings settings})]
+            allowed (manifest/tool-call-allowed? context tool-name {:settings (:settings opts)})]
         (cond
-          (= :disabled allowed)
+          (or (= :disabled allowed) (= :unknown allowed))
           (responses/error-response id -32601 "Unknown tool")
 
-          (= :unknown allowed)
-          (responses/error-response id -32601 (str "Unknown tool: " tool-name))
-
           :else
-          ;; Dispatch to your tool implementation (same as Copilot invoke-tool).
+          ;; Dispatch to your Copilot invoke-tool implementation.
           (responses/success-response id {:content [{:type "text" :text "…"}]})))
 
-      (when id
-        (responses/error-response id -32601 "Method not found")))))
+      (mcp-requests/handle-manifest-request context request opts))))
 ```
 
-Pass a `:settings` map when tools or skills use `when` clauses in `package.json`. Keys are the full clause strings; values are booleans (see Limitations).
+`handle-manifest-request` covers `initialize`, `tools/list`, `resources/list`, `resources/read` (static skills), `resources/templates/list`, and `ping`.
+
+**Dynamic resources** (computed at read time, not `chatSkills` files) use optional hooks in the opts map:
+
+| Key | Role |
+|-----|------|
+| `:resource-templates+` | `(fn [context opts] → [templates…] \| Promise)` for `resources/templates/list` |
+| `:read-resource+` | `(fn [context uri opts] → {:contents […]} \| nil \| Promise)`; `nil` falls through to skill read |
+| `:initialize-merge` | Map merged into the initialize result (e.g. extra `:capabilities`) |
+
+Pass `:settings` when tools or skills use `when` clauses in `package.json` (see Limitations).
 
 ### 4. Wire Up Lifecycle
 
