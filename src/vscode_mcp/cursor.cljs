@@ -11,14 +11,11 @@
         (fn? (.-registerServer (.-mcp (.-cursor vscode)))))))
 
 (defn current-instance-slug
-  [^js extension-context]
+  [_]
   (config/instance-slug
    #:instance{:workspace-root-path (some-> ^js (first vscode/workspace.workspaceFolders)
                                            .-uri
-                                           .-fsPath)
-              :storage-uri-path (some-> extension-context
-                                        .-storageUri
-                                        .-fsPath)}))
+                                           .-fsPath)}))
 
 (def ^:private registered-names-key "vscode-mcp.cursor/registered-names")
 

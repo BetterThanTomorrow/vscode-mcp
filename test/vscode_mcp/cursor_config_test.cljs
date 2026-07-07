@@ -14,14 +14,21 @@
               (sut/instance-slug #:instance{:workspace-root-path "/c/b"}))
         "differs for different paths"))
 
-  (testing "storage path yields win- slug"
+  (testing "host pid yields win- slug harmonized per extension host"
     (is (re-matches #"win-[a-z0-9]+"
-                    (sut/instance-slug #:instance{:storage-uri-path "/storage/abc"}))))
+                    (sut/instance-slug #:instance{:host-pid 12345})))
+    (is (= (sut/instance-slug #:instance{:host-pid 12345})
+           (sut/instance-slug #:instance{:host-pid 12345}))
+        "same pid yields equal slugs")
+    (is (not= (sut/instance-slug #:instance{:host-pid 12345})
+              (sut/instance-slug #:instance{:host-pid 99999}))
+        "different pids yield different slugs"))
 
-  (testing "no inputs yields random anon- slug"
-    (is (re-matches #"anon-[0-9a-f]{8}" (sut/instance-slug {})))
-    (is (not= (sut/instance-slug {})
-              (sut/instance-slug {})))))
+  (testing "no workspace uses win- slug from process pid"
+    (is (re-matches #"win-[a-z0-9]+" (sut/instance-slug {})))
+    (is (= (sut/instance-slug {})
+           (sut/instance-slug {}))
+        "deterministic when called twice")))
 
 (deftest slugged-server-name-test
   (testing "always includes generation suffix"

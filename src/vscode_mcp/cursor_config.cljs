@@ -7,16 +7,15 @@
   (.toString (js/Math.abs (hash s)) 36))
 
 (defn instance-slug
-  [{:instance/keys [workspace-root-path storage-uri-path]}]
-  (cond
-    (seq workspace-root-path)
+  "Per-window slug shared by port files and Cursor MCP server names.
+   With a workspace open: ws-{hash(workspace-root-path)}.
+   Without a workspace: win-{hash(extension-host-pid)} so all extensions
+   in the same VS Code window harmonize on the same slug."
+  [{:instance/keys [workspace-root-path host-pid]}]
+  (if (seq workspace-root-path)
     (str "ws-" (short-hash workspace-root-path))
-
-    (seq storage-uri-path)
-    (str "win-" (short-hash storage-uri-path))
-
-    :else
-    (str "anon-" (subs (str (random-uuid)) 0 8))))
+    (let [pid (or host-pid js/process.pid)]
+      (str "win-" (short-hash (str pid))))))
 
 (defn mcp-client-identifier
   [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
