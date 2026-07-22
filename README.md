@@ -93,6 +93,7 @@ Pass `:settings` when tools or skills use `when` clauses in `package.json` (see 
   (let [cfg (vscode/workspace.getConfiguration "my-extension.mcp")]
     {:mcp/auto-start? (.get cfg "autoStartServer" false)
      :mcp/auto-register? (.get cfg "autoRegisterCursor" true)
+     :mcp/auto-register-eca? (.get cfg "autoRegisterEca" true)
      :server/host (.get cfg "host")
      :server/request-port (.get cfg "port" 0)}))
 
@@ -141,14 +142,14 @@ Pass `:settings` when tools or skills use `when` clauses in `package.json` (see 
                result))))
 ```
 
-Call `maybe-start!+` unconditionally from `activate`. It starts when `:mcp/auto-start?` is true, or when Cursor auto-register is enabled and the Cursor MCP API is available. Use `start!+` for manual start commands — it always starts (unless already running) and shows the manual-start dialog with a copy-to-clipboard button.
+Call `maybe-start!+` unconditionally from `activate`. It starts when `:mcp/auto-start?` is true, or when Cursor auto-register is enabled and the Cursor MCP API is available, or when ECA auto-register is enabled, the ECA extension is installed, and a workspace folder is open. Use `start!+` for manual start commands — it always starts (unless already running) and shows the manual-start dialog with a copy-to-clipboard button.
 
 #### Lifecycle API
 
 | Function | Purpose |
 |----------|---------|
 | `init-state` | Fresh lifecycle state |
-| `create-config` | Merge your opts with defaults (`:server/host` defaults to `"127.0.0.1"`) |
+| `create-config` | Merge your opts with defaults (`:server/host` defaults to `"127.0.0.1"`; `:mcp/auto-register-eca?` defaults to `false`) |
 | `running?` / `server-info` / `cursor-registered?` | Query current state |
 | `maybe-start!+` | Start when policy allows |
 | `start!+` | Always start |
@@ -189,6 +190,20 @@ When `:mcp/auto-register?` is false but the Cursor API is available, `maybe-star
 ### In-session stop → start
 
 Stop unregisters from Cursor, stops the socket, and returns fresh init-state with an incremented `:lifecycle/generation` when the server had been registered. The next start registers under a new generation-suffixed name and reloads the MCP client. Extension deactivate should use `{:lifecycle/silent? true}`.
+
+## ECA Registration
+
+The library default for `:mcp/auto-register-eca?` is **false** — ECA registration is inert until consumers pass `true`. Consumers typically wire their user-facing setting (default `true`) into `create-config`.
+
+When enabled, registration runs after the socket server starts, gated on:
+
+- ECA extension `editor-code-assistant.eca` installed (activated before write)
+- A workspace folder open
+- Port file available from started `server-info`
+
+Registration writes project-local `.eca/config.json` only. It updates managed fields (`command`, `args`) and preserves sibling keys (`disabled`, `env`, …). The server key is `:cursor/server-name` base (e.g. `joyride`, `backseat-driver`) — not Cursor’s generation-suffixed name. The wrapper path is `extensionPath` + `:cursor/script-relative-path` (not any consumer copy under `~/.config`).
+
+ECA registration is independent of Cursor registration: Cursor failure does not skip ECA; ECA failure does not roll back Cursor or the server. There is no deregister on stop, no Register-with-ECA command, and no ECA when-contexts. Registration is idempotent — a no-op rewrite when managed fields already match.
 
 ## Limitations
 

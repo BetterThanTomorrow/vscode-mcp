@@ -28,6 +28,7 @@
   [opts]
   (merge {:mcp/auto-start? false
           :mcp/auto-register? true
+          :mcp/auto-register-eca? false
           :server/host stdio-config/default-host}
          opts))
 

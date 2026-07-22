@@ -2,6 +2,7 @@
   (:require
    [promesa.core :as p]
    [vscode-mcp.cursor :as cursor]
+   [vscode-mcp.eca :as eca]
    [vscode-mcp.lifecycle :as state]
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
@@ -53,6 +54,31 @@
         (do (notify! on-cursor-registration-failed result)
             (assoc state :lifecycle/server-info started-server-info))))))
 
+(defn- maybe-register-eca!+
+  [config started-server-info]
+  (let [on-log (:mcp/on-log config)
+        allowed? (policy/should-register-with-eca?
+                  {:mcp/auto-register-eca? (:mcp/auto-register-eca? config)
+                   :mcp/eca-available? (eca/eca-available?)
+                   :mcp/port-file-present? (state/port-file-present? started-server-info)
+                   :mcp/workspace-root-present? (eca/workspace-root-present?)})]
+    (if-not allowed?
+      (p/resolved nil)
+      (-> (eca/register!+
+           {:cursor/server-name (:cursor/server-name config)
+            :cursor/script-relative-path (:cursor/script-relative-path config)
+            :vscode/extension-context (:vscode/extension-context config)
+            :server/port-file-uri (:server/port-file-uri started-server-info)
+            :server/host (:server/host config)})
+          (p/then (fn [result]
+                    (when (and (not (:ok result)) on-log)
+                      (on-log :warn "[MCP] ECA registration failed:" (pr-str result)))
+                    result))
+          (p/catch (fn [err]
+                     (when on-log
+                       (on-log :warn "[MCP] ECA registration error:" (str err)))
+                     {:ok false :error err}))))))
+
 (defn- wait-for-server-ready!+
   [started-server-info on-log]
   (let [host (:server/host started-server-info)
@@ -95,9 +121,11 @@
           (p/then (fn [started-server-info]
                     (let [info (assoc started-server-info :server/instance-slug instance-slug)]
                       (notify! on-running-changed true info)
-                      (if register-allowed?
-                        (do-register!+ config state info)
-                        (assoc state :lifecycle/server-info info)))))
+                      (p/let [state' (if register-allowed?
+                                       (do-register!+ config state info)
+                                       (assoc state :lifecycle/server-info info))
+                              _ (maybe-register-eca!+ config info)]
+                        state'))))
           (p/then (fn [state']
                     (notify! on-starting-changed false)
                     (when-not silent?
@@ -122,13 +150,16 @@
 
 (defn maybe-start!+
   [config state silent?]
-  (let [{:mcp/keys [auto-start? auto-register?]} config]
+  (let [{:mcp/keys [auto-start? auto-register? auto-register-eca?]} config]
     (p/let [_ (when (and (cursor/cursor-mcp-available?) (not auto-register?))
                 (sweep-stale-registrations!+ config))]
       (if (or (running? state)
               (policy/should-auto-start? {:mcp/auto-start? auto-start?
                                           :mcp/auto-register? auto-register?
-                                          :mcp/cursor-available? (cursor/cursor-mcp-available?)}))
+                                          :mcp/cursor-available? (cursor/cursor-mcp-available?)
+                                          :mcp/auto-register-eca? auto-register-eca?
+                                          :mcp/eca-available? (eca/eca-available?)
+                                          :mcp/workspace-root-present? (eca/workspace-root-present?)}))
         (start-flow!+ config state silent?)
         state))))
 

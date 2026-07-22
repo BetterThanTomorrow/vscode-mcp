@@ -19,15 +19,19 @@
       (is (= {:server/assigned-port 1664} (sut/server-info state))))))
 
 (deftest create-config-test
-  (testing "defaults auto-start?, auto-register?, and host"
+  (testing "defaults auto-start?, auto-register?, auto-register-eca?, and host"
     (let [config (sut/create-config {:cursor/server-name "test"})]
       (is (false? (:mcp/auto-start? config)))
       (is (true? (:mcp/auto-register? config)))
+      (is (false? (:mcp/auto-register-eca? config)))
       (is (= "127.0.0.1" (:server/host config)))))
 
   (testing "explicit opts override defaults"
-    (let [config (sut/create-config {:mcp/auto-start? true :server/host "0.0.0.0"})]
+    (let [config (sut/create-config {:mcp/auto-start? true
+                                     :mcp/auto-register-eca? true
+                                     :server/host "0.0.0.0"})]
       (is (true? (:mcp/auto-start? config)))
+      (is (true? (:mcp/auto-register-eca? config)))
       (is (= "0.0.0.0" (:server/host config))))))
 
 (deftest port-file-present-test
