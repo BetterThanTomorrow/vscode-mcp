@@ -2,4 +2,7 @@
  :builds
  {:test {:target :node-test
          :output-to "out/test.js"
-         :ns-regexp "-test$"}}}
+         :ns-regexp "-test$"
+         ;; Bundle classpath JS (vendored jsonc-parser); leave Node builtins as requires.
+         :js-options {:js-provider :shadow
+                      :keep-native-requires true}}}}

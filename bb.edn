@@ -1,7 +1,17 @@
-{:tasks
- {:requires ([babashka.process :refer [shell]])
+{:paths ["scripts"]
+ :deps {org.babashka/cli {:mvn/version "0.8.66"}}
+ :tasks
+ {:requires ([babashka.cli :as cli]
+             [babashka.process :refer [shell]]
+             [vendor-jsonc-parser])
+
   test
   {:doc "Compiles and runs unit tests."
    :task (do
            (shell "clojure -M:shadow-cljs compile test")
-           (shell "node out/test.js"))}}}
+           (shell "node out/test.js"))}
+
+  vendor-jsonc-parser
+  {:doc "Bundle microsoft/jsonc-parser into src/vscode_mcp/vendor/jsonc_parser.js [--version <ver>]"
+   :task (vendor-jsonc-parser/vendor!
+          (cli/parse-opts *command-line-args* vendor-jsonc-parser/cli-spec))}}}
