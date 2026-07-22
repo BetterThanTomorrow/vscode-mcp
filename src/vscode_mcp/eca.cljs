@@ -45,7 +45,7 @@
     :vscode/keys [extension-context]
     :server/keys [port-file-uri host]}]
   (-> (p/let [root-uri (workspace-root-uri)
-              ext (vscode/extensions.getExtension eca-extension-id)]
+              ^js ext (vscode/extensions.getExtension eca-extension-id)]
         (cond
           (not root-uri)
           {:ok false :reason :no-workspace}
