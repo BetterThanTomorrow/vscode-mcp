@@ -7,12 +7,18 @@
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
    [vscode-mcp.server :as server]
-   [vscode-mcp.server-readiness :as server-readiness]))
+   [vscode-mcp.server-readiness :as server-readiness]
+   [vscode-mcp.wrapper-install :as wrapper-install]))
 
 (def init-state state/init-state)
 (def running? state/running?)
 (def server-info state/server-info)
 (def cursor-registered? state/cursor-registered?)
+(defn- resolve-wrapper-path
+  [config]
+  (wrapper-install/installed-path (:lifecycle/wrapper-install-dir config)
+                                  (:cursor/script-relative-path config)))
+
 (def create-config state/create-config)
 
 (defn- cursor-mode?
@@ -94,8 +100,7 @@
               result (eca/register!+
                        {:cursor/server-name (:cursor/server-name config)
                         :cursor/script-relative-path (:cursor/script-relative-path config)
-                        :cursor/wrapper-path (when-let [wp (:lifecycle/wrapper-path config)]
-                                               (wp (:vscode/extension-context config) started-server-info))
+                        :cursor/wrapper-path (resolve-wrapper-path config)
                         :vscode/extension-context (:vscode/extension-context config)
                         :server/port-file-uri eca-uri
                         :server/host (:server/host config)})]
@@ -119,52 +124,54 @@
   [config state silent? & [flow-opts]]
   (if (running? state)
     (p/resolved state)
-    (let [{:vscode/keys [extension-context]
-           :mcp/keys [on-request on-log on-error]
-           :server/keys [host]
-           :lifecycle/keys [port-file-uri+ request-port wrapper-path
-                             on-running-changed on-starting-changed]} config
-          instance-slug (cursor/current-instance-slug extension-context)
-          strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
-                         :lifecycle/instance-slug instance-slug}
-          port-file-uri (when port-file-uri+ (port-file-uri+ extension-context strategy-opts))
-          request-port-value (when request-port (request-port extension-context strategy-opts))
-          register-allowed? (policy/should-register-on-start?
-                             {:mcp/auto-register? (:mcp/auto-register? config)
-                              :mcp/cursor-available? (cursor-mode? config)
-                              :mcp/port-file-present? true
-                              :lifecycle/skip-register? (:lifecycle/skip-register? flow-opts)})]
-      (notify! on-starting-changed true)
-      (-> (server/start-server!+ {:server/host host
-                                  :server/request-port request-port-value
-                                  :server/port-file-uri port-file-uri
-                                  :mcp/on-request on-request
-                                  :mcp/on-log on-log})
-          (p/then (fn [started-server-info]
-                    (wait-for-server-ready!+ started-server-info on-log)))
-          (p/then (fn [started-server-info]
-                    (let [info (assoc started-server-info :server/instance-slug instance-slug)]
-                      (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
-                              info' (cond-> info
-                                      eca-uri (assoc :server/eca-port-file-uri eca-uri))
-                              _ (notify! on-running-changed true info')
-                              state' (if register-allowed?
-                                       (do-register!+ config state info')
-                                       (assoc state :lifecycle/server-info info'))
-                              _ (maybe-register-eca!+ config info')]
-                        state'))))
-          (p/then (fn [state']
-                    (notify! on-starting-changed false)
-                    (when-not silent?
-                      (dialog/show-manual-start-dialog!+
-                       (wrapper-path extension-context (server-info state'))
-                       (server-info state')
-                       config))
-                    state'))
-          (p/catch (fn [e]
-                     (notify! on-starting-changed false)
-                     (notify! on-error e)
-                     state))))))
+    (do
+      (wrapper-install/ensure-installed! config)
+      (let [{:vscode/keys [extension-context]
+             :mcp/keys [on-request on-log on-error]
+             :server/keys [host]
+             :lifecycle/keys [port-file-uri+ request-port
+                              on-running-changed on-starting-changed]} config
+            instance-slug (cursor/current-instance-slug extension-context)
+            strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
+                           :lifecycle/instance-slug instance-slug}
+            port-file-uri (when port-file-uri+ (port-file-uri+ extension-context strategy-opts))
+            request-port-value (when request-port (request-port extension-context strategy-opts))
+            register-allowed? (policy/should-register-on-start?
+                               {:mcp/auto-register? (:mcp/auto-register? config)
+                                :mcp/cursor-available? (cursor-mode? config)
+                                :mcp/port-file-present? true
+                                :lifecycle/skip-register? (:lifecycle/skip-register? flow-opts)})]
+        (notify! on-starting-changed true)
+        (-> (server/start-server!+ {:server/host host
+                                    :server/request-port request-port-value
+                                    :server/port-file-uri port-file-uri
+                                    :mcp/on-request on-request
+                                    :mcp/on-log on-log})
+            (p/then (fn [started-server-info]
+                      (wait-for-server-ready!+ started-server-info on-log)))
+            (p/then (fn [started-server-info]
+                      (let [info (assoc started-server-info :server/instance-slug instance-slug)]
+                        (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
+                                info' (cond-> info
+                                        eca-uri (assoc :server/eca-port-file-uri eca-uri))
+                                _ (notify! on-running-changed true info')
+                                state' (if register-allowed?
+                                         (do-register!+ config state info')
+                                         (assoc state :lifecycle/server-info info'))
+                                _ (maybe-register-eca!+ config info')]
+                          state'))))
+            (p/then (fn [state']
+                      (notify! on-starting-changed false)
+                      (when-not silent?
+                        (dialog/show-manual-start-dialog!+
+                         (resolve-wrapper-path config)
+                         (server-info state')
+                         config))
+                      state'))
+            (p/catch (fn [e]
+                       (notify! on-starting-changed false)
+                       (notify! on-error e)
+                       state)))))))
 
 (defn- sweep-stale-registrations!+
   [{:cursor/keys [server-name] :vscode/keys [extension-context]}]

@@ -84,6 +84,7 @@ Pass `:settings` when tools or skills use `when` clauses in `package.json` (see 
 
 ```clojure
 (require '[vscode-mcp.core :as lifecycle]
+         '["os" :as os]
          '["path" :as path]
          '["vscode" :as vscode])
 
@@ -114,8 +115,7 @@ Pass `:settings` when tools or skills use `when` clauses in `package.json` (see 
                                            (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port"))
            :lifecycle/request-port (fn [_ctx {:lifecycle/keys [cursor-mode?]}]
                                      (if cursor-mode? 0 (:server/request-port (read-mcp-settings))))
-           :lifecycle/wrapper-path (fn [^js ctx _server-info]
-                                     (path/join (.-extensionPath ctx) "dist" "mcp-server.js"))
+           :lifecycle/wrapper-install-dir (path/join (os/homedir) ".config" "my-extension")
            :lifecycle/on-running-changed (fn [running? _info]
                                            ;; Sync VS Code when-contexts, status bar, etc.
                                            )})))
@@ -145,6 +145,8 @@ Pass `:settings` when tools or skills use `when` clauses in `package.json` (see 
 ```
 
 Call `maybe-start!+` unconditionally from `activate`. It starts when `:mcp/auto-start?` is true, or when Cursor auto-register is enabled and the Cursor MCP API is available, or when ECA auto-register is enabled, the ECA extension is installed, and a workspace folder is open. Use `start!+` for manual start commands — it always starts (unless already running) and shows the manual-start dialog with a copy-to-clipboard button.
+
+`:lifecycle/wrapper-install-dir` is required. On every start the library installs the stdio wrapper there (symlink in DEBUG builds, copy in release) and uses that path for the manual-setup dialog and ECA registration (`${env:HOME}/...` when under home).
 
 #### Lifecycle API
 
@@ -205,7 +207,7 @@ When enabled, registration runs after the socket server starts, gated on:
 
 Consumers should pass `:lifecycle/eca-port-file-uri+` for a **workspace-stable** port file path (e.g. `.calva/mcp-server/port` or `.joyride/mcp-server/port`). When configured, the library **always** mirrors the listening port there on every successful start, regardless of whether ECA auto-register runs. ECA registration (when enabled) then uses that stable path in `.eca/config.json`. On stop, the mirror is deleted when distinct from the primary (Cursor mode uses a tmpdir path).
 
-Registration writes project-local `.eca/config.json` only. It updates managed fields (`command`, `args`) and preserves sibling keys (`disabled`, `env`, …). The server key is `:cursor/server-name` base (e.g. `joyride`, `backseat-driver`) — not Cursor’s generation-suffixed name. The port arg is workspace-relative when the stable port file is under the workspace root (e.g. `.calva/mcp-server/port`). The wrapper arg uses `${env:HOME}/...` when the resolved wrapper path is under the home directory — consumers should pass `:lifecycle/wrapper-path` pointing at their stable home copy when they want commit-friendly config; otherwise the absolute `extensionPath` + `:cursor/script-relative-path` wrapper is used.
+Registration writes project-local `.eca/config.json` only. It updates managed fields (`command`, `args`) and preserves sibling keys (`disabled`, `env`, …). The server key is `:cursor/server-name` base (e.g. `joyride`, `backseat-driver`) — not Cursor’s generation-suffixed name. The port arg is workspace-relative when the stable port file is under the workspace root (e.g. `.calva/mcp-server/port`). The wrapper arg uses the installed path from `:lifecycle/wrapper-install-dir` as `${env:HOME}/...` when under the home directory.
 
 ECA registration is independent of Cursor registration: Cursor failure does not skip ECA; ECA failure does not roll back Cursor or the server. There is no deregister on stop, no Register-with-ECA command, and no ECA when-contexts. Registration is idempotent — a no-op rewrite when managed fields already match.
 
