@@ -28,7 +28,16 @@
   (when on-log
     (apply on-log level args)))
 
-(defn- delete-port-file!+ [options ^js port-file-uri]
+(defn write-port-file!+
+  "Creates parent dirs and writes `assigned-port` to `port-file-uri`."
+  [options ^js port-file-uri assigned-port]
+  (p/do!
+   (let [port-file-dir (vscode/Uri.joinPath port-file-uri "..")]
+     (vscode/workspace.fs.createDirectory port-file-dir))
+   (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str assigned-port)))
+   (do-log options :info "Wrote port file:" (.-fsPath port-file-uri))))
+
+(defn delete-port-file!+ [options ^js port-file-uri]
   (p/create
    (fn [resolve-fn _reject]
      (if-not port-file-uri
@@ -209,13 +218,10 @@
     (p/let [server-info+ (start-socket-server!+ runtime-options)
             assigned-port (:server/assigned-port server-info+)]
       (if port-file-uri
-        (let [port-file-dir (vscode/Uri.joinPath port-file-uri "..")]
-          (p/do!
-           (vscode/workspace.fs.createDirectory port-file-dir)
-           (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str assigned-port)))
-           (do-log runtime-options :info "Wrote port file:" (.-fsPath ^js port-file-uri))
-           (server-info/merge-started-server-info runtime-options server-info+
-                                                  {:server/host server-host :server/port-file-uri port-file-uri})))
+        (p/then (write-port-file!+ runtime-options port-file-uri assigned-port)
+                (fn [_]
+                  (server-info/merge-started-server-info runtime-options server-info+
+                                                         {:server/host server-host :server/port-file-uri port-file-uri})))
         (server-info/merge-started-server-info runtime-options server-info+
                                                {:server/host server-host})))))
 

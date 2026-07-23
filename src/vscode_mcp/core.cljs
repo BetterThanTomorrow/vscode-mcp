@@ -54,8 +54,33 @@
         (do (notify! on-cursor-registration-failed result)
             (assoc state :lifecycle/server-info started-server-info))))))
 
+(defn- same-port-file-uri?
+  [^js primary-uri ^js other-uri]
+  (and primary-uri other-uri
+       (= (.-fsPath primary-uri) (.-fsPath other-uri))))
+
+(defn- resolve-eca-port-file-uri
+  [config started-server-info strategy-opts]
+  (let [{:vscode/keys [extension-context]
+         :lifecycle/keys [eca-port-file-uri+]} config
+        primary-uri (:server/port-file-uri started-server-info)]
+    (if eca-port-file-uri+
+      (eca-port-file-uri+ extension-context strategy-opts)
+      primary-uri)))
+
+(defn- ensure-eca-port-file!+
+  [config started-server-info strategy-opts]
+  (let [primary-uri (:server/port-file-uri started-server-info)
+        eca-uri (resolve-eca-port-file-uri config started-server-info strategy-opts)
+        assigned-port (:server/assigned-port started-server-info)]
+    (cond
+      (nil? eca-uri) (p/resolved nil)
+      (same-port-file-uri? primary-uri eca-uri) (p/resolved eca-uri)
+      :else (-> (server/write-port-file!+ config eca-uri assigned-port)
+                (p/then (constantly eca-uri))))))
+
 (defn- maybe-register-eca!+
-  [config started-server-info]
+  [config started-server-info strategy-opts]
   (let [on-log (:mcp/on-log config)
         allowed? (policy/should-register-with-eca?
                   {:mcp/auto-register-eca? (:mcp/auto-register-eca? config)
@@ -64,20 +89,17 @@
                    :mcp/workspace-root-present? (eca/workspace-root-present?)})]
     (if-not allowed?
       (p/resolved nil)
-      (-> (eca/register!+
-           {:cursor/server-name (:cursor/server-name config)
-            :cursor/script-relative-path (:cursor/script-relative-path config)
-            :vscode/extension-context (:vscode/extension-context config)
-            :server/port-file-uri (:server/port-file-uri started-server-info)
-            :server/host (:server/host config)})
-          (p/then (fn [result]
-                    (when (and (not (:ok result)) on-log)
-                      (on-log :warn "[MCP] ECA registration failed:" (pr-str result)))
-                    result))
-          (p/catch (fn [err]
-                     (when on-log
-                       (on-log :warn "[MCP] ECA registration error:" (str err)))
-                     {:ok false :error err}))))))
+      (p/let [eca-uri (ensure-eca-port-file!+ config started-server-info strategy-opts)
+              result (eca/register!+
+                       {:cursor/server-name (:cursor/server-name config)
+                        :cursor/script-relative-path (:cursor/script-relative-path config)
+                        :vscode/extension-context (:vscode/extension-context config)
+                        :server/port-file-uri eca-uri
+                        :server/host (:server/host config)})]
+        (when (and (not (:ok result)) on-log)
+          (on-log :warn "[MCP] ECA registration failed:" (pr-str result)))
+        {:server/eca-port-file-uri eca-uri
+         :eca/result result}))))
 
 (defn- wait-for-server-ready!+
   [started-server-info on-log]
@@ -124,8 +146,10 @@
                       (p/let [state' (if register-allowed?
                                        (do-register!+ config state info)
                                        (assoc state :lifecycle/server-info info))
-                              _ (maybe-register-eca!+ config info)]
-                        state'))))
+                              eca-result (maybe-register-eca!+ config info strategy-opts)]
+                        (if-let [eca-uri (:server/eca-port-file-uri eca-result)]
+                          (update state' :lifecycle/server-info assoc :server/eca-port-file-uri eca-uri)
+                          state')))))
           (p/then (fn [state']
                     (notify! on-starting-changed false)
                     (when-not silent?
@@ -192,10 +216,16 @@
       (let [{:vscode/keys [extension-context]
              :mcp/keys [on-log]
              :lifecycle/keys [on-running-changed on-stopping-changed]} config
+            info (server-info state)
+            primary-uri (:server/port-file-uri info)
+            eca-uri (:server/eca-port-file-uri info)
             registered (:lifecycle/registered-name state)
             generation (:lifecycle/generation state 0)]
         (notify! on-stopping-changed true)
-        (-> (server/stop-server!+ (assoc (server-info state) :mcp/on-log on-log))
+        (-> (server/stop-server!+ (assoc info :mcp/on-log on-log))
+            (p/then (fn [_]
+                      (when (and eca-uri (not (same-port-file-uri? primary-uri eca-uri)))
+                        (server/delete-port-file!+ {:mcp/on-log on-log} eca-uri))))
             (p/then (fn [_]
                       (when registered
                         (p/let [_ (cursor/unregister-by-name!+ registered)

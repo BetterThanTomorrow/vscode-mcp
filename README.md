@@ -110,6 +110,8 @@ Pass `:settings` when tools or skills use `when` clauses in `package.json` (see 
                                          ;; Cursor auto-register: stable port file outside workspace
                                          (vscode/Uri.file (str "/tmp/my-extension-mcp/" instance-slug "/port"))
                                          (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port")))
+           :lifecycle/eca-port-file-uri+ (fn [^js ctx _strategy-opts]
+                                           (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port"))
            :lifecycle/request-port (fn [_ctx {:lifecycle/keys [cursor-mode?]}]
                                      (if cursor-mode? 0 (:server/request-port (read-mcp-settings))))
            :lifecycle/wrapper-path (fn [^js ctx _server-info]
@@ -200,6 +202,8 @@ When enabled, registration runs after the socket server starts, gated on:
 - ECA extension `editor-code-assistant.eca` installed (activated before write)
 - A workspace folder open
 - Port file available from started `server-info`
+
+Consumers should pass `:lifecycle/eca-port-file-uri+` for a **workspace-stable** port file path (e.g. `.calva/mcp-server/port` or `.joyride/mcp-server/port`). When that URI differs from the primary port file (Cursor mode uses a tmpdir path), the library mirrors the listening port there and writes the stable path into `.eca/config.json`. On stop, the mirror file is deleted when it is distinct from the primary.
 
 Registration writes project-local `.eca/config.json` only. It updates managed fields (`command`, `args`) and preserves sibling keys (`disabled`, `env`, …). The server key is `:cursor/server-name` base (e.g. `joyride`, `backseat-driver`) — not Cursor’s generation-suffixed name. The wrapper path is `extensionPath` + `:cursor/script-relative-path` (not any consumer copy under `~/.config`).
 
