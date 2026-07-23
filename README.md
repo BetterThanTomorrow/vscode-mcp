@@ -203,7 +203,7 @@ When enabled, registration runs after the socket server starts, gated on:
 - A workspace folder open
 - Port file available from started `server-info`
 
-Consumers should pass `:lifecycle/eca-port-file-uri+` for a **workspace-stable** port file path (e.g. `.calva/mcp-server/port` or `.joyride/mcp-server/port`). When that URI differs from the primary port file (Cursor mode uses a tmpdir path), the library mirrors the listening port there and writes the stable path into `.eca/config.json`. On stop, the mirror file is deleted when it is distinct from the primary.
+Consumers should pass `:lifecycle/eca-port-file-uri+` for a **workspace-stable** port file path (e.g. `.calva/mcp-server/port` or `.joyride/mcp-server/port`). When configured, the library **always** mirrors the listening port there on every successful start, regardless of whether ECA auto-register runs. ECA registration (when enabled) then uses that stable path in `.eca/config.json`. On stop, the mirror is deleted when distinct from the primary (Cursor mode uses a tmpdir path).
 
 Registration writes project-local `.eca/config.json` only. It updates managed fields (`command`, `args`) and preserves sibling keys (`disabled`, `env`, …). The server key is `:cursor/server-name` base (e.g. `joyride`, `backseat-driver`) — not Cursor’s generation-suffixed name. The wrapper path is `extensionPath` + `:cursor/script-relative-path` (not any consumer copy under `~/.config`).
 

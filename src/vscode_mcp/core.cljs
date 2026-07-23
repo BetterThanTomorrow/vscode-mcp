@@ -80,7 +80,7 @@
                 (p/then (constantly eca-uri))))))
 
 (defn- maybe-register-eca!+
-  [config started-server-info strategy-opts]
+  [config started-server-info]
   (let [on-log (:mcp/on-log config)
         allowed? (policy/should-register-with-eca?
                   {:mcp/auto-register-eca? (:mcp/auto-register-eca? config)
@@ -89,7 +89,8 @@
                    :mcp/workspace-root-present? (eca/workspace-root-present?)})]
     (if-not allowed?
       (p/resolved nil)
-      (p/let [eca-uri (ensure-eca-port-file!+ config started-server-info strategy-opts)
+      (p/let [eca-uri (or (:server/eca-port-file-uri started-server-info)
+                          (:server/port-file-uri started-server-info))
               result (eca/register!+
                        {:cursor/server-name (:cursor/server-name config)
                         :cursor/script-relative-path (:cursor/script-relative-path config)
@@ -98,8 +99,7 @@
                         :server/host (:server/host config)})]
         (when (and (not (:ok result)) on-log)
           (on-log :warn "[MCP] ECA registration failed:" (pr-str result)))
-        {:server/eca-port-file-uri eca-uri
-         :eca/result result}))))
+        {:eca/result result}))))
 
 (defn- wait-for-server-ready!+
   [started-server-info on-log]
@@ -142,14 +142,15 @@
                     (wait-for-server-ready!+ started-server-info on-log)))
           (p/then (fn [started-server-info]
                     (let [info (assoc started-server-info :server/instance-slug instance-slug)]
-                      (notify! on-running-changed true info)
-                      (p/let [state' (if register-allowed?
-                                       (do-register!+ config state info)
-                                       (assoc state :lifecycle/server-info info))
-                              eca-result (maybe-register-eca!+ config info strategy-opts)]
-                        (if-let [eca-uri (:server/eca-port-file-uri eca-result)]
-                          (update state' :lifecycle/server-info assoc :server/eca-port-file-uri eca-uri)
-                          state')))))
+                      (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
+                              info' (cond-> info
+                                      eca-uri (assoc :server/eca-port-file-uri eca-uri))
+                              _ (notify! on-running-changed true info')
+                              state' (if register-allowed?
+                                       (do-register!+ config state info')
+                                       (assoc state :lifecycle/server-info info'))
+                              _ (maybe-register-eca!+ config info')]
+                        state'))))
           (p/then (fn [state']
                     (notify! on-starting-changed false)
                     (when-not silent?
