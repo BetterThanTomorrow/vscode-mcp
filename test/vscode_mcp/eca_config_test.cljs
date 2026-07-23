@@ -24,6 +24,24 @@
                      "/ws/.joyride/mcp-server/port"
                      "0.0.0.0"))
 
+(deftest home-env-path-test
+  (testing "under home → ${env:HOME}/..."
+    (is (= "${env:HOME}/.config/calva/backseat-driver/calva-mcp-server.js"
+           (sut/home-env-path "/Users/pez/.config/calva/backseat-driver/calva-mcp-server.js"
+                            "/Users/pez"))))
+  (testing "outside home → absolute posix unchanged"
+    (is (= "/opt/mcp/wrapper.js"
+           (sut/home-env-path "/opt/mcp/wrapper.js" "/Users/pez")))))
+
+(deftest workspace-relative-path-test
+  (testing "under workspace → relative"
+    (is (= ".calva/mcp-server/port"
+           (sut/workspace-relative-path "/ws/project/.calva/mcp-server/port"
+                                        "/ws/project"))))
+  (testing "outside workspace → absolute"
+    (is (= "/tmp/mcp/port"
+           (sut/workspace-relative-path "/tmp/mcp/port" "/ws/project")))))
+
 (defn- parse-string-keys [text]
   (js->clj (jsonc/parse text)))
 

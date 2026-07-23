@@ -1,8 +1,41 @@
 (ns vscode-mcp.eca-config
   "Pure merge/compare for project-local `.eca/config.json` mcpServers entries."
   (:require
+   ["path" :as path]
+   [clojure.string :as string]
    [vscode-mcp.jsonc :as jsonc]
    [vscode-mcp.stdio-config :as stdio-config]))
+
+(defn as-posix
+  "Normalize path separators to forward slashes."
+  [p]
+  (string/replace p #"\\" "/"))
+
+(defn under-dir?
+  "True when `abs-path` is `dir` or a descendant (after resolve)."
+  [abs-path dir]
+  (let [resolved-path (as-posix (.resolve path abs-path))
+        resolved-dir (as-posix (.resolve path dir))]
+    (or (= resolved-path resolved-dir)
+        (.startsWith resolved-path (str resolved-dir "/")))))
+
+(defn home-env-path
+  "When `abs-path` is under `home-dir`, return `${env:HOME}/` + posix-relative; else absolute posix."
+  [abs-path home-dir]
+  (let [resolved (as-posix (.resolve path abs-path))
+        home (as-posix (.resolve path home-dir))]
+    (if (under-dir? resolved home)
+      (str "${env:HOME}/" (as-posix (.relative path home resolved)))
+      resolved)))
+
+(defn workspace-relative-path
+  "When `abs-path` is under `workspace-root`, return posix-relative; else absolute posix."
+  [abs-path workspace-root]
+  (let [resolved (as-posix (.resolve path abs-path))
+        root (as-posix (.resolve path workspace-root))]
+    (if (under-dir? resolved root)
+      (as-posix (.relative path root resolved))
+      resolved)))
 
 (def managed-fields
   ["command" "args"])

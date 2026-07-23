@@ -1,6 +1,7 @@
 (ns vscode-mcp.eca
   "Effectful ECA project-local MCP registration."
   (:require
+   ["os" :as os]
    ["vscode" :as vscode]
    [promesa.core :as p]
    [vscode-mcp.cursor-config :as cursor-config]
@@ -40,8 +41,10 @@
 
    Never throws past the promise boundary. Activates the ECA extension before
    any read/write. Server key is `:cursor/server-name` (base name, not the
-   generation-suffixed Cursor name). Wrapper path is extensionPath + script."
-  [{:cursor/keys [server-name script-relative-path]
+   generation-suffixed Cursor name). Writes portable args when possible: wrapper
+   under `$HOME` as `${env:HOME}/...` (prefers optional `:cursor/wrapper-path`,
+   e.g. consumer `~/.config/...` copy), port under workspace root as relative."
+  [{:cursor/keys [server-name script-relative-path wrapper-path]
     :vscode/keys [extension-context]
     :server/keys [port-file-uri host]}]
   (-> (p/let [root-uri (workspace-root-uri)
@@ -57,11 +60,14 @@
           (p/let [_ (.activate ext)
                   config-uri (vscode/Uri.joinPath root-uri ".eca" "config.json")
                   text (read-text!+ config-uri)
-                  wrapper-path (cursor-config/wrapper-script-path
-                                {:vscode/extension-context extension-context
-                                 :cursor/script-relative-path script-relative-path})
-                  port-file-path (some-> port-file-uri (unchecked-get "fsPath"))
-                  desired (eca-config/desired-entry wrapper-path port-file-path host)
+                  resolved-wrapper (or wrapper-path
+                                       (cursor-config/wrapper-script-path
+                                        {:vscode/extension-context extension-context
+                                         :cursor/script-relative-path script-relative-path}))
+                  portable-wrapper (eca-config/home-env-path resolved-wrapper (os/homedir))
+                  port-abs (some-> port-file-uri (unchecked-get "fsPath"))
+                  portable-port (eca-config/workspace-relative-path port-abs (.-fsPath root-uri))
+                  desired (eca-config/desired-entry portable-wrapper portable-port host)
                   plan (eca-config/plan-config-text text server-name desired)]
             (if (= :no-op (:eca/action plan))
               {:ok true :action :no-op}

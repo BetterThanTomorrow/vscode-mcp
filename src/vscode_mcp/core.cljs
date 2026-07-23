@@ -94,6 +94,8 @@
               result (eca/register!+
                        {:cursor/server-name (:cursor/server-name config)
                         :cursor/script-relative-path (:cursor/script-relative-path config)
+                        :cursor/wrapper-path (when-let [wp (:lifecycle/wrapper-path config)]
+                                               (wp (:vscode/extension-context config) started-server-info))
                         :vscode/extension-context (:vscode/extension-context config)
                         :server/port-file-uri eca-uri
                         :server/host (:server/host config)})]
