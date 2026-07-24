@@ -68,15 +68,41 @@ Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `to
 
 `handle-manifest-request` covers `initialize`, `tools/list`, `resources/list`, `resources/read` (static skills), `resources/templates/list`, and `ping`.
 
+#### Skill resources
+
+Copilot `chatSkills` are exposed as MCP resources with a [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)-aligned subset (see [SEP-2640 compliance](#sep-2640-compliance) below).
+
+| Topic | Contract |
+|-------|----------|
+| Canonical URI | `skill://{name}/SKILL.md` |
+| Read alias | `skill://{name}` — accepted by `resources/read` only; not listed |
+| `resources/list` / `get-resources` | One entry per enabled skill (SKILL.md only). Siblings and `skill://index.json` are **not** listed |
+| `resources/read` — index | `skill://index.json` — JSON discovery catalog of enabled skills; same `when` / `:settings` gating as list |
+| `resources/read` — siblings | `skill://{name}/references/…` and other files under the skill directory; path-safe (rejects `..` / escape outside skill root); best-effort symlink handling |
+| mimeType | `.md` → `text/markdown`; other siblings → `text/plain`; index → `application/json` |
+| Initialize capability | `capabilities.extensions["io.modelcontextprotocol/skills"] = {}` |
+| Initialize instructions | Cite full `skill://…/SKILL.md` URIs; mention `skill://index.json` for discovery |
+
+`:initialize-merge` **deep-merges** `:capabilities` (other keys shallow-merge) so consumer overlays such as `tools.listChanged` coexist with the skills extension.
+
 **Dynamic resources** (computed at read time, not `chatSkills` files) use optional hooks in the opts map:
 
 | Key | Role |
 |-----|------|
 | `:resource-templates+` | `(fn [context opts] → [templates…] \| Promise)` for `resources/templates/list` |
 | `:read-resource+` | `(fn [context uri opts] → {:contents […]} \| nil \| Promise)`; `nil` falls through to skill read |
-| `:initialize-merge` | Map merged into the initialize result (e.g. extra `:capabilities`) |
+| `:initialize-merge` | Map merged into the initialize result; `:capabilities` deep-merged (see above) |
 
 Pass `:settings` when tools or skills use `when` clauses in `package.json` (see Limitations).
+
+#### SEP-2640 compliance
+
+| Status | Items |
+|--------|-------|
+| **Implemented** | Canonical `/SKILL.md` URI shape; bare read alias; `skill://index.json` (`skill-md` entries only); `io.modelcontextprotocol/skills` capability; sibling `resources/read`; initialize instruction pointers; `when` / `:settings` gating |
+| **Deferred** | Archives; `mcp-resource-template`; hierarchical skill paths |
+
+Proof: unit tests in `test/vscode_mcp/manifest_test.cljs` and `test/vscode_mcp/requests_test.cljs`.
 
 ### 4. Wire Up Lifecycle
 
