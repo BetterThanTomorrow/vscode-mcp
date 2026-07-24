@@ -43,7 +43,22 @@
                                               :initialize-merge {:description "Extra"}})]
         (is (= "custom" (get-in res [:result :serverInfo :name])))
         (is (string/includes? (get-in res [:result :instructions]) "Hello"))
-        (is (= "Extra" (get-in res [:result :description])))))))
+        (is (= "Extra" (get-in res [:result :description])))))
+
+    (testing "includes skills extension capability"
+      (let [res (sut/handle-manifest-request ctx {:method "initialize" :id 3} {:settings {}})]
+        (is (contains? (get-in res [:result :capabilities :extensions])
+                       "io.modelcontextprotocol/skills"))))
+
+    (testing "deep-merges capabilities from initialize-merge"
+      (let [res (sut/handle-manifest-request ctx {:method "initialize" :id 4}
+                                             {:settings {}
+                                              :initialize-merge {:capabilities {:tools {:listChanged true}
+                                                                                :resources {:listChanged true}}}})]
+        (is (true? (get-in res [:result :capabilities :tools :listChanged])))
+        (is (true? (get-in res [:result :capabilities :resources :listChanged])))
+        (is (contains? (get-in res [:result :capabilities :extensions])
+                       "io.modelcontextprotocol/skills"))))))
 
 (deftest tools-list-test
   (testing "respects when settings"

@@ -110,6 +110,21 @@
   [skill-name]
   (str "skill://" skill-name "/SKILL.md"))
 
+(def skills-index-uri "skill://index.json")
+
+(def skills-index-schema "https://schemas.agentskills.io/discovery/0.2.0/schema.json")
+
+(defn build-skills-index
+  "Builds the SEP-2640 discovery index map from skill entry-point resources."
+  [resources]
+  {:$schema skills-index-schema
+   :skills (mapv (fn [{:keys [name description uri]}]
+                   {:name name
+                    :type "skill-md"
+                    :description description
+                    :url uri})
+                 resources)})
+
 (defn- read-skill-resource [extension-path skill]
   (let [skill-path (oget skill "path")
         abs-path (path/join extension-path skill-path)]
@@ -161,14 +176,21 @@
    and returns its content. Returns nil if not found."
   [^js context uri & [options]]
   (let [resources (get-resources context options)]
-    (when-let [resource (find-skill-resource-by-uri resources uri)]
-      (try
-        {:uri uri
-         :mimeType (:mimeType resource)
-         :text (fs/readFileSync (:skill-path resource) "utf8")}
-        (catch js/Error e
-          (js/console.error "[MCP Manifest] Error reading resource" uri ":" (.-message e))
-          nil)))))
+    (cond
+      (= uri skills-index-uri)
+      {:uri uri
+       :mimeType "application/json"
+       :text (js/JSON.stringify (clj->js (build-skills-index resources)))}
+
+      :else
+      (when-let [resource (find-skill-resource-by-uri resources uri)]
+        (try
+          {:uri uri
+           :mimeType (:mimeType resource)
+           :text (fs/readFileSync (:skill-path resource) "utf8")}
+          (catch js/Error e
+            (js/console.error "[MCP Manifest] Error reading resource" uri ":" (.-message e))
+            nil))))))
 
 (defn build-server-instructions
   "Generates an instructional string for MCP clients based on available tools and resources.
@@ -209,7 +231,8 @@
                                                  :resources resources})]
     {:protocolVersion "2024-11-05"
      :capabilities {:tools {}
-                    :resources {}}
+                    :resources {}
+                    :extensions {"io.modelcontextprotocol/skills" {}}}
      :instructions instructions
      :serverInfo {:name server-name
                   :version server-version}}))

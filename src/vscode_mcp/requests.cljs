@@ -47,13 +47,27 @@
     :else
     (success-for-read id (skill-read-result context uri opts) "Resource not found")))
 
+(defn- deep-merge-capabilities
+  [base overlay]
+  (merge-with (fn [a b]
+                (if (and (map? a) (map? b))
+                  (merge a b)
+                  b))
+              (or base {})
+              (or overlay {})))
+
 (defn- handle-initialize
   [context id opts]
   (let [{:keys [initialize-opts initialize-merge settings]} opts
-        init-opts (merge (or initialize-opts {}) {:settings settings})]
-    (responses/success-response id
-                                (merge (manifest/build-initialize-result context init-opts)
-                                       initialize-merge))))
+        init-opts (merge (or initialize-opts {}) {:settings settings})
+        base (manifest/build-initialize-result context init-opts)
+        overlay (or initialize-merge {})
+        result (-> base
+                   (merge (dissoc overlay :capabilities))
+                   (assoc :capabilities
+                          (deep-merge-capabilities (:capabilities base)
+                                                   (:capabilities overlay))))]
+    (responses/success-response id result)))
 
 (defn- handle-tools-list
   [context id opts]

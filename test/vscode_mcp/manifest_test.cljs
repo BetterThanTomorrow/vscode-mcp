@@ -166,5 +166,17 @@
       (testing "get-resources lists canonical URI only"
         (let [resources (sut/get-resources ctx)]
           (is (= 1 (count resources)))
-          (is (= "skill://test-skill/SKILL.md" (:uri (first resources)))))))
+          (is (= "skill://test-skill/SKILL.md" (:uri (first resources))))))
+
+      (testing "reads skills index JSON"
+        (let [result (sut/read-resource ctx sut/skills-index-uri)
+              parsed (js->clj (js/JSON.parse (:text result)) :keywordize-keys true)
+              skill (first (:skills parsed))]
+          (is (= sut/skills-index-uri (:uri result)))
+          (is (= "application/json" (:mimeType result)))
+          (is (= sut/skills-index-schema (:$schema parsed)))
+          (is (= 1 (count (:skills parsed))))
+          (is (= "test-skill" (:name skill)))
+          (is (= "skill-md" (:type skill)))
+          (is (= "skill://test-skill/SKILL.md" (:url skill))))))
     (js/console.warn "Skipping read-resource-test: fixture not found")))
