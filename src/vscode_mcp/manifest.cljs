@@ -105,6 +105,11 @@
       (js/console.error "[MCP Manifest] Error getting tools:" (.-message e))
       [])))
 
+(defn canonical-skill-uri
+  "Returns the SEP-shaped skill entry URI `skill://{name}/SKILL.md`."
+  [skill-name]
+  (str "skill://" skill-name "/SKILL.md"))
+
 (defn- read-skill-resource [extension-path skill]
   (let [skill-path (oget skill "path")
         abs-path (path/join extension-path skill-path)]
@@ -113,7 +118,7 @@
             frontmatter (read-skill-frontmatter content)
             skill-name (or (:name frontmatter)
                            (path/basename (path/dirname abs-path)))]
-        {:uri (str "skill://" skill-name)
+        {:uri (canonical-skill-uri skill-name)
          :name skill-name
          :description (or (:description frontmatter) "No description provided.")
          :mimeType "text/markdown"
@@ -146,9 +151,10 @@
 (defn find-skill-resource-by-uri [resources uri]
   (or (some #(when (= (:uri %) uri) %) resources)
       (when (and (string/starts-with? uri "skill://")
-                 (string/ends-with? uri "/SKILL.md"))
-        (let [canonical-uri (subs uri 0 (- (count uri) (count "/SKILL.md")))]
-          (some #(when (= (:uri %) canonical-uri) %) resources)))))
+                 (not (string/includes? (subs uri (count "skill://")) "/")))
+        (let [skill-name (subs uri (count "skill://"))
+              canonical (canonical-skill-uri skill-name)]
+          (some #(when (= (:uri %) canonical) %) resources)))))
 
 (defn read-resource
   "Given a resource URI requested via MCP `resources/read`, looks up the resource

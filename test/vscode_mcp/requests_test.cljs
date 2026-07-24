@@ -63,7 +63,7 @@
         (let [resources (get-in (sut/handle-manifest-request ctx {:method "resources/list" :id 1} {:settings {}})
                                 [:result :resources])]
           (is (= 1 (count resources)))
-          (is (= "skill://test-skill" (:uri (first resources))))
+          (is (= "skill://test-skill/SKILL.md" (:uri (first resources))))
           (is (nil? (:skill-path (first resources)))))))
     (js/console.warn "Skipping resources-list-test: fixture not found")))
 

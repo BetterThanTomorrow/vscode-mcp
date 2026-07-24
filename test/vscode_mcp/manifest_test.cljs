@@ -135,14 +135,14 @@
           "combines base-text, tools, and resources with double newlines"))))
 
 (deftest find-skill-resource-by-uri-test
-  (let [resources [{:uri "skill://test-skill" :name "test-skill"}]]
+  (let [resources [{:uri "skill://test-skill/SKILL.md" :name "test-skill"}]]
     (testing "matches canonical URI"
       (is (= (first resources)
-             (sut/find-skill-resource-by-uri resources "skill://test-skill"))))
-
-    (testing "matches skill://{name}/SKILL.md alias"
-      (is (= (first resources)
              (sut/find-skill-resource-by-uri resources "skill://test-skill/SKILL.md"))))
+
+    (testing "matches bare skill://{name} alias"
+      (is (= (first resources)
+             (sut/find-skill-resource-by-uri resources "skill://test-skill"))))
 
     (testing "returns nil for unknown URI"
       (is (nil? (sut/find-skill-resource-by-uri resources "skill://missing"))))))
@@ -151,13 +151,13 @@
   (if-let [extension-path (test-fixture-extension-path)]
     (let [ctx (mock-skill-context extension-path)]
       (testing "reads canonical skill URI"
-        (let [result (sut/read-resource ctx "skill://test-skill")]
-          (is (= "skill://test-skill" (:uri result)))
-          (is (string/includes? (:text result) "Test Skill"))))
-
-      (testing "reads skill://{name}/SKILL.md alias and echoes requested URI"
         (let [result (sut/read-resource ctx "skill://test-skill/SKILL.md")]
           (is (= "skill://test-skill/SKILL.md" (:uri result)))
+          (is (string/includes? (:text result) "Test Skill"))))
+
+      (testing "reads bare skill://{name} alias and echoes requested URI"
+        (let [result (sut/read-resource ctx "skill://test-skill")]
+          (is (= "skill://test-skill" (:uri result)))
           (is (string/includes? (:text result) "Test Skill"))))
 
       (testing "returns nil for unknown URI"
@@ -166,5 +166,5 @@
       (testing "get-resources lists canonical URI only"
         (let [resources (sut/get-resources ctx)]
           (is (= 1 (count resources)))
-          (is (= "skill://test-skill" (:uri (first resources)))))))
+          (is (= "skill://test-skill/SKILL.md" (:uri (first resources)))))))
     (js/console.warn "Skipping read-resource-test: fixture not found")))
