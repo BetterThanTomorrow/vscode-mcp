@@ -163,6 +163,59 @@
       (js/console.error "[MCP Manifest] Error getting resources:" (.-message e))
       [])))
 
+(defn- mime-type-for-path [file-path]
+  (if (string/ends-with? file-path ".md")
+    "text/markdown"
+    "text/plain"))
+
+(defn- unsafe-rel-path? [rel-path]
+  (or (string/starts-with? rel-path "/")
+      (boolean (some #{".."} (string/split rel-path #"/")))))
+
+(defn- safe-skill-sibling-path [skill-root rel-path]
+  (when (and rel-path (not (unsafe-rel-path? rel-path)))
+    (let [resolved (path/resolve skill-root rel-path)]
+      (when (and (string/starts-with? (str resolved path/sep)
+                                      (str skill-root path/sep))
+                 (fs/existsSync resolved)
+                 (.isFile (fs/statSync resolved)))
+        resolved))))
+
+(defn- parse-skill-sibling-uri [uri]
+  (when (and (string/starts-with? uri "skill://")
+             (not= uri skills-index-uri))
+    (let [rest-uri (subs uri (count "skill://"))
+          slash-idx (string/index-of rest-uri "/")]
+      (when slash-idx
+        (let [skill-name (subs rest-uri 0 slash-idx)
+              rel-path (subs rest-uri (inc slash-idx))]
+          (when (and (not (string/blank? skill-name))
+                     (not (string/blank? rel-path)))
+            {:name skill-name :rel-path rel-path}))))))
+
+(defn- read-skill-sibling-resource [resource uri rel-path]
+  (let [skill-dir (path/dirname (:skill-path resource))]
+    (when-let [file-path (safe-skill-sibling-path skill-dir rel-path)]
+      (try
+        {:uri uri
+         :mimeType (mime-type-for-path file-path)
+         :text (fs/readFileSync file-path "utf8")}
+        (catch js/Error e
+          (js/console.error "[MCP Manifest] Error reading skill sibling" uri ":" (.-message e))
+          nil)))))
+
+(defn- find-skill-by-name [resources name]
+  (some #(when (= (:name %) name) %) resources))
+
+(defn- read-skill-entry-resource [resource uri]
+  (try
+    {:uri uri
+     :mimeType (:mimeType resource)
+     :text (fs/readFileSync (:skill-path resource) "utf8")}
+    (catch js/Error e
+      (js/console.error "[MCP Manifest] Error reading resource" uri ":" (.-message e))
+      nil)))
+
 (defn find-skill-resource-by-uri [resources uri]
   (or (some #(when (= (:uri %) uri) %) resources)
       (when (and (string/starts-with? uri "skill://")
@@ -183,14 +236,11 @@
        :text (js/JSON.stringify (clj->js (build-skills-index resources)))}
 
       :else
-      (when-let [resource (find-skill-resource-by-uri resources uri)]
-        (try
-          {:uri uri
-           :mimeType (:mimeType resource)
-           :text (fs/readFileSync (:skill-path resource) "utf8")}
-          (catch js/Error e
-            (js/console.error "[MCP Manifest] Error reading resource" uri ":" (.-message e))
-            nil))))))
+      (or (some-> (find-skill-resource-by-uri resources uri)
+                  (read-skill-entry-resource uri))
+          (when-let [{:keys [name rel-path]} (parse-skill-sibling-uri uri)]
+            (some-> (find-skill-by-name resources name)
+                    (read-skill-sibling-resource uri rel-path)))))))
 
 (defn build-server-instructions
   "Generates an instructional string for MCP clients based on available tools and resources.

@@ -178,5 +178,18 @@
           (is (= 1 (count (:skills parsed))))
           (is (= "test-skill" (:name skill)))
           (is (= "skill-md" (:type skill)))
-          (is (= "skill://test-skill/SKILL.md" (:url skill))))))
+          (is (= "skill://test-skill/SKILL.md" (:url skill)))))
+
+      (testing "reads skill sibling file"
+        (let [result (sut/read-resource ctx "skill://test-skill/references/example.md")]
+          (is (= "skill://test-skill/references/example.md" (:uri result)))
+          (is (= "text/markdown" (:mimeType result)))
+          (is (string/includes? (:text result) "Sibling fixture for skill://test-skill/references/example.md"))))
+
+      (testing "rejects path traversal for sibling reads"
+        (is (nil? (sut/read-resource ctx "skill://test-skill/../SKILL.md")))
+        (is (nil? (sut/read-resource ctx "skill://test-skill/references/../../SKILL.md"))))
+
+      (testing "returns nil for missing sibling"
+        (is (nil? (sut/read-resource ctx "skill://test-skill/references/missing.md")))))
     (js/console.warn "Skipping read-resource-test: fixture not found")))
