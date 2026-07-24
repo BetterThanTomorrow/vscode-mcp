@@ -107,3 +107,18 @@
       (is (= :write (:eca/action once)))
       (is (= :no-op (:eca/action twice)))
       (is (= (:eca/text once) (:eca/text twice))))))
+
+(deftest desired-entry-portable-wiring-test
+  (testing "composes home-env-path + workspace-relative-path like eca/register!+"
+    (let [entry (sut/desired-entry
+                 (sut/home-env-path
+                  "/Users/test/.config/calva/backseat-driver/calva-mcp-server.js"
+                  "/Users/test")
+                 (sut/workspace-relative-path
+                  "/ws/project/.calva/mcp-server/port"
+                  "/ws/project")
+                 "127.0.0.1")]
+      (is (= ["${env:HOME}/.config/calva/backseat-driver/calva-mcp-server.js"
+              ".calva/mcp-server/port"
+              "127.0.0.1"]
+             (get entry "args"))))))

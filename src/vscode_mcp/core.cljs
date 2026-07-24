@@ -60,11 +60,6 @@
         (do (notify! on-cursor-registration-failed result)
             (assoc state :lifecycle/server-info started-server-info))))))
 
-(defn- same-port-file-uri?
-  [^js primary-uri ^js other-uri]
-  (and primary-uri other-uri
-       (= (.-fsPath primary-uri) (.-fsPath other-uri))))
-
 (defn- resolve-eca-port-file-uri
   [config started-server-info strategy-opts]
   (let [{:vscode/keys [extension-context]
@@ -79,11 +74,11 @@
   (let [primary-uri (:server/port-file-uri started-server-info)
         eca-uri (resolve-eca-port-file-uri config started-server-info strategy-opts)
         assigned-port (:server/assigned-port started-server-info)]
-    (cond
-      (nil? eca-uri) (p/resolved nil)
-      (same-port-file-uri? primary-uri eca-uri) (p/resolved eca-uri)
-      :else (-> (server/write-port-file!+ config eca-uri assigned-port)
-                (p/then (constantly eca-uri))))))
+    (case (state/eca-port-mirror-action primary-uri eca-uri)
+      :skip (p/resolved nil)
+      :reuse (p/resolved eca-uri)
+      :mirror (-> (server/write-port-file!+ config eca-uri assigned-port)
+                  (p/then (constantly eca-uri))))))
 
 (defn- maybe-register-eca!+
   [config started-server-info]
@@ -120,6 +115,20 @@
                 started-server-info))
       (p/resolved started-server-info))))
 
+(defn- register-after-start!+
+  [config state {:keys [started-server-info strategy-opts register-allowed?]}]
+  (let [info (assoc started-server-info :server/instance-slug (:lifecycle/instance-slug strategy-opts))
+        on-running-changed (:lifecycle/on-running-changed config)]
+    (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
+            info' (cond-> info
+                    eca-uri (assoc :server/eca-port-file-uri eca-uri))
+            _ (notify! on-running-changed true info')
+            state' (if register-allowed?
+                     (do-register!+ config state info')
+                     (assoc state :lifecycle/server-info info'))
+            _ (maybe-register-eca!+ config info')]
+      state')))
+
 (defn- start-flow!+
   [config state silent? & [flow-opts]]
   (if (running? state)
@@ -130,7 +139,7 @@
              :mcp/keys [on-request on-log on-error]
              :server/keys [host]
              :lifecycle/keys [port-file-uri+ request-port
-                              on-running-changed on-starting-changed]} config
+                              on-starting-changed]} config
             instance-slug (cursor/current-instance-slug extension-context)
             strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
                            :lifecycle/instance-slug instance-slug}
@@ -150,16 +159,11 @@
             (p/then (fn [started-server-info]
                       (wait-for-server-ready!+ started-server-info on-log)))
             (p/then (fn [started-server-info]
-                      (let [info (assoc started-server-info :server/instance-slug instance-slug)]
-                        (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
-                                info' (cond-> info
-                                        eca-uri (assoc :server/eca-port-file-uri eca-uri))
-                                _ (notify! on-running-changed true info')
-                                state' (if register-allowed?
-                                         (do-register!+ config state info')
-                                         (assoc state :lifecycle/server-info info'))
-                                _ (maybe-register-eca!+ config info')]
-                          state'))))
+                      (register-after-start!+
+                       config state
+                       {:started-server-info started-server-info
+                        :strategy-opts strategy-opts
+                        :register-allowed? register-allowed?})))
             (p/then (fn [state']
                       (notify! on-starting-changed false)
                       (when-not silent?
@@ -234,7 +238,7 @@
         (notify! on-stopping-changed true)
         (-> (server/stop-server!+ (assoc info :mcp/on-log on-log))
             (p/then (fn [_]
-                      (when (and eca-uri (not (same-port-file-uri? primary-uri eca-uri)))
+                      (when (= :mirror (state/eca-port-mirror-action primary-uri eca-uri))
                         (server/delete-port-file!+ {:mcp/on-log on-log} eca-uri))))
             (p/then (fn [_]
                       (when registered

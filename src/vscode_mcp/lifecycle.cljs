@@ -53,3 +53,17 @@
        :register/generation generation
        :register/register-name (cursor-config/slugged-server-name
                                  base-name instance-slug generation)})))
+
+(defn same-port-file-uri?
+  "True when both URIs are present and share the same fsPath."
+  [^js primary-uri ^js other-uri]
+  (and primary-uri other-uri
+       (= (.-fsPath primary-uri) (.-fsPath other-uri))))
+
+(defn eca-port-mirror-action
+  "Returns :skip | :reuse | :mirror for primary vs eca port-file URIs (compare fsPath)."
+  [primary-uri eca-uri]
+  (cond
+    (nil? eca-uri) :skip
+    (same-port-file-uri? primary-uri eca-uri) :reuse
+    :else :mirror))

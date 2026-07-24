@@ -65,3 +65,19 @@
       (is (= "joyride-ws-abc-g2" (:register/unregister-name intent)))
       (is (= 3 (:register/generation intent)))
       (is (= "joyride-ws-abc-g3" (:register/register-name intent))))))
+
+(deftest eca-port-mirror-action-test
+  (testing "nil eca (incl. both nil) → :skip"
+    (is (= :skip (sut/eca-port-mirror-action nil nil)))
+    (is (= :skip (sut/eca-port-mirror-action #js {:fsPath "/primary/port"} nil))))
+
+  (testing "same fsPath → :reuse"
+    (is (= :reuse (sut/eca-port-mirror-action #js {:fsPath "/ws/port"}
+                                              #js {:fsPath "/ws/port"}))))
+
+  (testing "different fsPath → :mirror"
+    (is (= :mirror (sut/eca-port-mirror-action #js {:fsPath "/tmp/cursor/port"}
+                                               #js {:fsPath "/ws/.calva/mcp-server/port"})))
+    (is (= :mirror (sut/eca-port-mirror-action nil
+                                               #js {:fsPath "/ws/.calva/mcp-server/port"}))
+        "nil primary with eca present mirrors")))
