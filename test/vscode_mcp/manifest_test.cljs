@@ -120,15 +120,19 @@
           "formats tools block correctly")))
 
   (testing "handles resources"
-    (let [resources [{:name "my-skill" :description "Skill description"}]]
-      (is (= "Specialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n- **my-skill**: Skill description"
+    (let [resources [{:name "my-skill"
+                      :uri "skill://my-skill/SKILL.md"
+                      :description "Skill description"}]]
+      (is (= "Specialized skills are available as resources. Use `resources/list` and `resources/read` to load them — prefer the full skill URI (or read `skill://index.json` for discovery):\n- **my-skill** (`skill://my-skill/SKILL.md`): Skill description"
              (sut/build-server-instructions {:resources resources}))
           "formats resources block correctly")))
 
   (testing "handles everything combined"
     (let [tools [{:name "my-tool" :description "Tool description"}]
-          resources [{:name "my-skill" :description "Skill description"}]]
-      (is (= "Base text\n\nAvailable tools:\n- **`my-tool`**: Tool description\n\nSpecialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n- **my-skill**: Skill description"
+          resources [{:name "my-skill"
+                      :uri "skill://my-skill/SKILL.md"
+                      :description "Skill description"}]]
+      (is (= "Base text\n\nAvailable tools:\n- **`my-tool`**: Tool description\n\nSpecialized skills are available as resources. Use `resources/list` and `resources/read` to load them — prefer the full skill URI (or read `skill://index.json` for discovery):\n- **my-skill** (`skill://my-skill/SKILL.md`): Skill description"
              (sut/build-server-instructions {:base-text "Base text"
                                              :tools tools
                                              :resources resources}))

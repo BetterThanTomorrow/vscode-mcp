@@ -252,13 +252,13 @@
                                                    (str "- **`" name "`**: " description))
                                                  tools))))
         resources-text (when (seq resources)
-                         (str "Specialized skills are available as resources. Use `resources/list` to discover them and `resources/read` to load their full instructions before starting work in their domain:\n"
-                              (string/join "\n" (map (fn [{:keys [name description]}]
-                                                       (str "- **" name "**: " description))
-                                                     resources))))]
-    (let [parts (remove string/blank? [base-text tools-text resources-text])]
-      (when (seq parts)
-        (string/join "\n\n" parts)))))
+                         (str "Specialized skills are available as resources. Use `resources/list` and `resources/read` to load them — prefer the full skill URI (or read `skill://index.json` for discovery):\n"
+                              (string/join "\n" (map (fn [{:keys [name description uri]}]
+                                                       (str "- **" name "** (`" uri "`): " description))
+                                                     resources))))
+        parts (remove string/blank? [base-text tools-text resources-text])]
+    (when (seq parts)
+      (string/join "\n\n" parts))))
 
 (defn build-initialize-result
   "Generates an MCP `initialize` result map.
