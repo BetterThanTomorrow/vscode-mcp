@@ -1,15 +1,17 @@
 # vscode-mcp
 
-A [ClojureScript](https://clojurescript.org) library for VS Code extensions that already declare Copilot **`languageModelTools`** and **`chatSkills`** in `package.json`, and want the same tools and resources available over MCP — with zero-config Cursor registration.
+A [ClojureScript](https://clojurescript.org) library for VS Code extensions that already declare Copilot **`languageModelTools`** and **`chatSkills`** in `package.json`, and want the same tools and resources available over MCP — with zero-config Cursor registration (and optional ECA registration).
 
 The library:
 
 1. Runs a TCP socket MCP server inside the Extension Host.
-2. Bundles a Node.js `stdio` wrapper script that MCP clients spawn; the wrapper relays stdin/stdout to the socket.
+2. Bundles a Node.js `stdio` wrapper that MCP clients spawn; the wrapper relays stdin/stdout to the socket.
 3. Reads your existing Copilot manifest and exposes it as MCP tools and resources.
 4. Auto-registers with Cursor via [`vscode.cursor.mcp.registerServer`](https://cursor.com/docs/extension-api).
 
 If your extension does not declare Copilot tools and skills, this library is not for you.
+
+Agent/dev contract (lifecycle API, skill URIs, co-development with consumers): see [AGENTS.md](AGENTS.md).
 
 ## Usage
 
@@ -24,8 +26,6 @@ Update `:git/sha` to pin a specific commit (see [releases](https://github.com/Be
 
 ### 2. Configure the Stdio Wrapper Build
 
-Add a build target to your `shadow-cljs.edn`:
-
 ```edn
 :stdio-wrapper {:target :node-script
                 :main vscode-mcp.stdio.wrapper/main
@@ -34,7 +34,7 @@ Add a build target to your `shadow-cljs.edn`:
 
 ### 3. Wire the Manifest to MCP
 
-Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `tools/call` locally and delegate everything else to `vscode-mcp.requests/handle-manifest-request`.
+Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `tools/call` locally and delegate everything else to `vscode-mcp.requests/handle-manifest-request` (covers `initialize`, `tools/list`, `resources/*`, `ping`).
 
 ```clojure
 (require '[vscode-mcp.manifest :as manifest]
@@ -44,12 +44,9 @@ Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `to
 (defn- settings-map []
   {"config.my-extension.someSetting" true})
 
-(defn- request-opts []
-  {:settings (settings-map)
-   :initialize-opts {:settings (settings-map)}})
-
 (defn handle-mcp-request [{:keys [method params id] :as request} ^js context]
-  (let [opts (request-opts)]
+  (let [opts {:settings (settings-map)
+              :initialize-opts {:settings (settings-map)}}]
     (case method
       "tools/call"
       (let [tool-name (:name params)
@@ -66,43 +63,7 @@ Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `to
       (mcp-requests/handle-manifest-request context request opts))))
 ```
 
-`handle-manifest-request` covers `initialize`, `tools/list`, `resources/list`, `resources/read` (static skills), `resources/templates/list`, and `ping`.
-
-#### Skill resources
-
-Copilot `chatSkills` are exposed as MCP resources with a [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)-aligned subset (see [SEP-2640 compliance](#sep-2640-compliance) below).
-
-| Topic | Contract |
-|-------|----------|
-| Canonical URI | `skill://{name}/SKILL.md` |
-| Read alias | `skill://{name}` — accepted by `resources/read` only; not listed |
-| `resources/list` / `get-resources` | One entry per enabled skill (SKILL.md only). Siblings and `skill://index.json` are **not** listed |
-| `resources/read` — index | `skill://index.json` — JSON discovery catalog of enabled skills; same `when` / `:settings` gating as list |
-| `resources/read` — siblings | `skill://{name}/references/…` and other files under the skill directory; path-safe (rejects `..` / escape outside skill root); best-effort symlink handling |
-| mimeType | `.md` → `text/markdown`; other siblings → `text/plain`; index → `application/json` |
-| Initialize capability | `capabilities.extensions["io.modelcontextprotocol/skills"] = {}` |
-| Initialize instructions | Cite full `skill://…/SKILL.md` URIs; mention `skill://index.json` for discovery |
-
-`:initialize-merge` **deep-merges** `:capabilities` (other keys shallow-merge) so consumer overlays such as `tools.listChanged` coexist with the skills extension.
-
-**Dynamic resources** (computed at read time, not `chatSkills` files) use optional hooks in the opts map:
-
-| Key | Role |
-|-----|------|
-| `:resource-templates+` | `(fn [context opts] → [templates…] \| Promise)` for `resources/templates/list` |
-| `:read-resource+` | `(fn [context uri opts] → {:contents […]} \| nil \| Promise)`; `nil` falls through to skill read |
-| `:initialize-merge` | Map merged into the initialize result; `:capabilities` deep-merged (see above) |
-
-Pass `:settings` when tools or skills use `when` clauses in `package.json` (see Limitations).
-
-#### SEP-2640 compliance
-
-| Status | Items |
-|--------|-------|
-| **Implemented** | Canonical `/SKILL.md` URI shape; bare read alias; `skill://index.json` (`skill-md` entries only); `io.modelcontextprotocol/skills` capability; sibling `resources/read`; initialize instruction pointers; `when` / `:settings` gating |
-| **Deferred** | Archives; `mcp-resource-template`; hierarchical skill paths |
-
-Proof: unit tests in `test/vscode_mcp/manifest_test.cljs` and `test/vscode_mcp/requests_test.cljs`.
+Skills from `chatSkills` show up as MCP resources at `skill://{name}/SKILL.md`. Details and optional hooks (`:resource-templates+`, `:read-resource+`, `:initialize-merge`) are in [AGENTS.md](AGENTS.md).
 
 ### 4. Wire Up Lifecycle
 
@@ -134,7 +95,6 @@ Proof: unit tests in `test/vscode_mcp/manifest_test.cljs` and `test/vscode_mcp/r
            :mcp/on-request handle-mcp-request
            :lifecycle/port-file-uri+ (fn [^js ctx {:lifecycle/keys [cursor-mode? instance-slug]}]
                                        (if cursor-mode?
-                                         ;; Cursor auto-register: stable port file outside workspace
                                          (vscode/Uri.file (str "/tmp/my-extension-mcp/" instance-slug "/port"))
                                          (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port")))
            :lifecycle/eca-port-file-uri+ (fn [^js ctx _strategy-opts]
@@ -153,92 +113,34 @@ Proof: unit tests in `test/vscode_mcp/manifest_test.cljs` and `test/vscode_mcp/r
 (defn deactivate []
   (-> (lifecycle/stop!+ (build-lifecycle-config nil) @!lifecycle-state {:lifecycle/silent? true})
       (.then #(reset! !lifecycle-state %))))
-
-(defn start-command! [^js context]
-  (-> (lifecycle/start!+ (build-lifecycle-config context) @!lifecycle-state false)
-      (.then #(reset! !lifecycle-state %))))
-
-(defn stop-command! [^js context]
-  (-> (lifecycle/stop!+ (build-lifecycle-config context) @!lifecycle-state
-                        {:lifecycle/silent? false})
-      (.then #(reset! !lifecycle-state %))))
-
-(defn register-with-cursor-command! [^js context]
-  (-> (lifecycle/register-with-cursor!+ (build-lifecycle-config context) @!lifecycle-state)
-      (.then (fn [result]
-               (when (:ok result) (reset! !lifecycle-state (:state result)))
-               result))))
 ```
 
-Call `maybe-start!+` unconditionally from `activate`. It starts when `:mcp/auto-start?` is true, or when Cursor auto-register is enabled and the Cursor MCP API is available, or when ECA auto-register is enabled, the ECA extension is installed, and a workspace folder is open. Use `start!+` for manual start commands — it always starts (unless already running) and shows the manual-start dialog with a copy-to-clipboard button.
+Call `maybe-start!+` from `activate`. Use `start!+` / `stop!+` / `register-with-cursor!+` for commands. `:lifecycle/wrapper-install-dir` is required (symlink in DEBUG, copy in release).
 
-`:lifecycle/wrapper-install-dir` is required. On every start the library installs the stdio wrapper there (symlink in DEBUG builds, copy in release) and uses that path for the manual-setup dialog and ECA registration (`${env:HOME}/...` when under home).
-
-#### Lifecycle API
-
-| Function | Purpose |
-|----------|---------|
-| `init-state` | Fresh lifecycle state |
-| `create-config` | Merge your opts with defaults (`:server/host` defaults to `"127.0.0.1"`; `:mcp/auto-register-eca?` defaults to `false`) |
-| `running?` / `server-info` / `cursor-registered?` | Query current state |
-| `maybe-start!+` | Start when policy allows |
-| `start!+` | Always start |
-| `stop!+` | Stop socket and unregister from Cursor |
-| `register-with-cursor!+` | Start if needed, then register with Cursor |
-
-Stop unregisters from Cursor (best-effort), stops the socket, and returns fresh init-state. If the server had been registered, `:lifecycle/generation` increments so the next register uses a new generation-suffixed server name.
-
-Before Cursor registration, the library probes TCP connect to the assigned port (5 s timeout). A timeout logs a warning and registration proceeds anyway.
+Library default for `:mcp/auto-register-eca?` is **false** — pass `true` from your setting if you want ECA `.eca/config.json` registration. Full Cursor/ECA behavior: [AGENTS.md](AGENTS.md).
 
 ## Reference Implementations
 
-Used by [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) and [Joyride](https://github.com/BetterThanTomorrow/joyride).
-
-## Stdio Wrapper Connect-Retry
-
-The bundled `vscode-mcp.stdio.wrapper` script waits for the extension host to start the TCP server before giving up:
-
-- **Connect-retry:** up to 60 s budget, 500 ms fixed interval between attempts.
-- **Port file re-read:** each attempt re-resolves the port (numeric arg as-is; port-file arg re-read from disk).
-- **Stdin buffered during wait:** queued lines flush to the socket on connect.
-- **Exit-on-close after first connection:** socket close or error exits (Cursor respawns the wrapper).
-- **Exit if stdin closes during wait:** the wrapper exits promptly instead of orphan-retrying.
-
-## Cursor Registration
-
-When auto-register is enabled and the Cursor MCP API is available, registration happens automatically during start. Server names are generation-suffixed: `<base>-<instance-slug>-g<generation>` (e.g. `my-extension-ws-abc123-g0`).
-
-On each register within a session:
-
-1. If a previous registration exists, it is unregistered first and generation increments.
-2. `registerServer` is called with the new generation-suffixed name.
-3. On success, `mcp.reloadClient` is always executed.
-4. Stale registration names are tracked in `workspaceState` under `vscode-mcp.cursor/registered-names` and swept on cleanup.
-
-When `:mcp/auto-register?` is false but the Cursor API is available, `maybe-start!+` sweeps stale tracked registrations on activate (without starting the server).
-
-### In-session stop → start
-
-Stop unregisters from Cursor, stops the socket, and returns fresh init-state with an incremented `:lifecycle/generation` when the server had been registered. The next start registers under a new generation-suffixed name and reloads the MCP client. Extension deactivate should use `{:lifecycle/silent? true}`.
-
-## ECA Registration
-
-The library default for `:mcp/auto-register-eca?` is **false** — ECA registration is inert until consumers pass `true`. Consumers typically wire their user-facing setting (default `true`) into `create-config`.
-
-When enabled, registration runs after the socket server starts, gated on:
-
-- ECA extension `editor-code-assistant.eca` installed (activated before write)
-- A workspace folder open
-- Port file available from started `server-info`
-
-Consumers should pass `:lifecycle/eca-port-file-uri+` for a **workspace-stable** port file path (e.g. `.calva/mcp-server/port` or `.joyride/mcp-server/port`). When configured, the library **always** mirrors the listening port there on every successful start, regardless of whether ECA auto-register runs. ECA registration (when enabled) then uses that stable path in `.eca/config.json`. On stop, the mirror is deleted when distinct from the primary (Cursor mode uses a tmpdir path).
-
-Registration writes project-local `.eca/config.json` only. It updates managed fields (`command`, `args`) and preserves sibling keys (`disabled`, `env`, …). The server key is `:cursor/server-name` base (e.g. `joyride`, `backseat-driver`) — not Cursor’s generation-suffixed name. The port arg is workspace-relative when the stable port file is under the workspace root (e.g. `.calva/mcp-server/port`). The wrapper arg uses the installed path from `:lifecycle/wrapper-install-dir` as `${env:HOME}/...` when under the home directory.
-
-ECA registration is independent of Cursor registration: Cursor failure does not skip ECA; ECA failure does not roll back Cursor or the server. There is no deregister on stop, no Register-with-ECA command, and no ECA when-contexts. Registration is idempotent — a no-op rewrite when managed fields already match.
+[Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) and [Joyride](https://github.com/BetterThanTomorrow/joyride).
 
 ## Limitations
 
-1. **Naive YAML frontmatter parsing** — `vscode-mcp.manifest` uses a regex line parser for skill frontmatter. No lists, nested objects, or YAML anchors.
-2. **Strict JSON Schema extraction** — tool `inputSchema` is filtered to `:type`, `:properties`, and `:required` only.
-3. **Literal `when` clause matching** — the `:settings` map keys must match `when` clause strings exactly. No expression evaluation (`&&`, `||`, comparisons).
+1. **Naive YAML frontmatter parsing** — regex line parser for skill frontmatter; no lists, nested objects, or YAML anchors.
+2. **Strict JSON Schema extraction** — tool `inputSchema` kept to `:type`, `:properties`, and `:required`.
+3. **Literal `when` clause matching** — `:settings` keys must match `when` strings exactly; no expression evaluation.
+
+## Sponsor my open source work ♥️
+
+This and many other projects are provided to you open source and free to use as you wish, by Peter Strömberg a.k.a. PEZ.
+
+* https://github.com/sponsors/PEZ
+
+## Licence
+
+[MIT](LICENSE)
+
+(Free to use and open source. 🍻🗽)
+
+## Happy coding! ❤️
+
+With or without AI 😀
