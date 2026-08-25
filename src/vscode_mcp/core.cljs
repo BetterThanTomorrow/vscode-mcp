@@ -6,6 +6,7 @@
    [vscode-mcp.lifecycle :as state]
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
+   [vscode-mcp.registry-writer :as registry-writer]
    [vscode-mcp.server :as server]
    [vscode-mcp.server-readiness :as server-readiness]
    [vscode-mcp.wrapper-install :as wrapper-install]))
@@ -20,6 +21,8 @@
                                   (:cursor/script-relative-path config)))
 
 (def create-config state/create-config)
+
+(def update-registry!+ registry-writer/update-registry!+)
 
 (defn- cursor-mode?
   [{:mcp/keys [auto-register?]}]
@@ -117,7 +120,9 @@
 
 (defn- register-after-start!+
   [config state {:keys [started-server-info strategy-opts register-allowed?]}]
-  (let [info (assoc started-server-info :server/instance-slug (:lifecycle/instance-slug strategy-opts))
+  (let [info (assoc started-server-info
+                    :server/instance-slug (:lifecycle/instance-slug strategy-opts)
+                    :server/workspace-root (cursor/current-workspace-root))
         on-running-changed (:lifecycle/on-running-changed config)]
     (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
             info' (cond-> info
@@ -164,6 +169,13 @@
                        {:started-server-info started-server-info
                         :strategy-opts strategy-opts
                         :register-allowed? register-allowed?})))
+            (p/then (fn [state']
+                      (-> (registry-writer/on-started!+ config (server-info state'))
+                          (p/catch (fn [err]
+                                     (when on-log
+                                       (on-log :warn "[MCP] registry start failed:" err))
+                                     nil))
+                          (p/then (fn [_] state')))))
             (p/then (fn [state']
                       (notify! on-starting-changed false)
                       (when-not silent?
@@ -235,6 +247,7 @@
             eca-uri (:server/eca-port-file-uri info)
             registered (:lifecycle/registered-name state)
             generation (:lifecycle/generation state 0)]
+        (registry-writer/on-stopping! config)
         (notify! on-stopping-changed true)
         (-> (server/stop-server!+ (assoc info :mcp/on-log on-log))
             (p/then (fn [_]
@@ -248,6 +261,7 @@
                                    nil)]
                           nil))))
             (p/then (fn [_]
+                      (registry-writer/on-stopped! config info)
                       (notify! on-running-changed false nil)
                       (notify! on-stopping-changed false)
                       (when-not silent?
@@ -256,6 +270,7 @@
                       (assoc (init-state)
                              :lifecycle/generation (if registered (inc generation) generation))))
             (p/catch (fn [_]
+                       (registry-writer/on-stopped! config info)
                        (notify! on-running-changed false nil)
                        (notify! on-stopping-changed false)
                        (init-state))))))))

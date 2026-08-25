@@ -29,7 +29,10 @@
   (merge {:mcp/auto-start? false
           :mcp/auto-register? true
           :mcp/auto-register-eca? false
-          :server/host stdio-config/default-host}
+          :server/host stdio-config/default-host
+          :registry/enabled? false
+          :registry/heartbeat-ms 30000
+          :registry/debounce-ms 1000}
          opts))
 
 (defn port-file-present?
