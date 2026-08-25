@@ -117,6 +117,12 @@ Skills from `chatSkills` show up as MCP resources at `skill://{name}/SKILL.md`. 
 
 Call `maybe-start!+` from `activate`. Use `start!+` / `stop!+` / `register-with-cursor!+` for commands. `:lifecycle/wrapper-install-dir` is required (symlink in DEBUG, copy in release).
 
+### Optional window registry
+
+Pass `:registry/enabled? true` to write a JSON shard while the socket is running, so external agents can discover this window without being inside the editor. Default directory: `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`). Filename is `<server-name>-<window-id>.json`.
+
+Supply `:registry/custom-data+` — `(fn [state] …)` returning a promise of a map, e.g. `{:sessions […]}` — to merge consumer fields. Core envelope keys are protected. Call `(vscode-mcp.core/update-registry!+ config)` when that data changes; the library debounce is 1000 ms. Heartbeat (30s) only refreshes `updatedAt`. Stop unlinks the shard.
+
 Library default for `:mcp/auto-register-eca?` is **false** — pass `true` from your setting if you want ECA `.eca/config.json` registration. Full Cursor/ECA behavior: [AGENTS.md](AGENTS.md).
 
 ## Reference Implementations
