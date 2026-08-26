@@ -3,7 +3,8 @@
  :tasks
  {:requires ([babashka.cli :as cli]
              [babashka.process :refer [shell]]
-             [vendor-jsonc-parser])
+             [vendor-jsonc-parser]
+             [watch-registry])
 
   test
   {:doc "Compiles and runs unit tests."
@@ -14,4 +15,8 @@
   vendor-jsonc-parser
   {:doc "Bundle microsoft/jsonc-parser into src/vscode_mcp/vendor/jsonc_parser.js [--version <ver>]"
    :task (vendor-jsonc-parser/vendor!
-          (cli/parse-opts *command-line-args* vendor-jsonc-parser/cli-spec))}}}
+          (cli/parse-opts *command-line-args* vendor-jsonc-parser/cli-spec))}
+
+  watch-registry
+  {:doc "Watch MCP window shards (consumer view). Terse log to .tmp/registry-watch.log [--verbose EDN]"
+   :task (watch-registry/main! *command-line-args*)}}}
