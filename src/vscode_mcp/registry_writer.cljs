@@ -5,6 +5,7 @@
    [vscode-mcp.registry :as registry]))
 
 (defonce !writers (atom {}))
+(defonce !generations (atom {}))
 
 (defn- writer-key
   [config server-info]
@@ -18,9 +19,13 @@
             k))
         (keys @!writers)))
 
+(defn- bump-generation!
+  [key]
+  (get (swap! !generations update key (fnil inc 0)) key))
+
 (defn- current-generation
   [key]
-  (get-in @!writers [key :generation]))
+  (get @!generations key))
 
 (defn- current-entry
   [key generation]
@@ -40,7 +45,8 @@
   []
   (doseq [[_ entry] @!writers]
     (clear-timers! entry))
-  (reset! !writers {}))
+  (reset! !writers {})
+  (reset! !generations {}))
 
 (defn- log-warn
   [config & args]
@@ -111,11 +117,12 @@
                (:server/instance-slug server-info))
     (p/resolved nil)
     (let [key (writer-key config server-info)
-          existing (get @!writers key)]
+          existing (get @!writers key)
+          generation (bump-generation! key)]
       (when existing
         (clear-timers! existing))
       (registry/sweep-dead-pid-files! (registry/registry-dir config))
-      (swap! !writers assoc key {:generation (inc (:generation existing 0))
+      (swap! !writers assoc key {:generation generation
                                  :config config
                                  :server-info server-info
                                  :last-payload nil
@@ -130,6 +137,7 @@
   (when-let [key (find-key (:cursor/server-name config))]
     (when-let [entry (get @!writers key)]
       (clear-timers! entry)
+      (bump-generation! key)
       (swap! !writers dissoc key))))
 
 (defn on-stopped!

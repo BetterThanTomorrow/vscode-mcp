@@ -155,3 +155,31 @@
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
+
+(deftest stop-then-start-fences-stale-custom-data-test
+  (async done
+         (let [dir (tmp-dir)
+               stale-config (tmp-config
+                             dir
+                             {:registry/custom-data+
+                              (fn [_]
+                                (p/then (delay+ 80)
+                                        (constantly {:sessions [{:stale true}]})))})
+               fresh-config (tmp-config
+                             dir
+                             {:registry/custom-data+
+                              (fn [_]
+                                (p/resolved {:sessions [{:fresh true}]}))})
+               info (tmp-info)]
+           (sut/on-started!+ stale-config info)
+           (sut/on-stopping! stale-config)
+           (sut/on-stopped! stale-config info)
+           (-> (sut/on-started!+ fresh-config info)
+               (p/then (fn [_]
+                         (delay+ 120)))
+               (p/then (fn [_]
+                         (is (= [{:fresh true}] (:sessions (read-shard dir)))
+                             "restart must not accept the previous generation's custom-data")))
+               (p/finally (fn []
+                            (cleanup! dir)
+                            (done)))))))
