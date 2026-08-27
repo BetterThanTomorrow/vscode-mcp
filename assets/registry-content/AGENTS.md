@@ -6,7 +6,7 @@ Read `README.md` as well as this file, and keep both in mind while you work.
 
 ## List servers
 
-When `bb.edn` is present, prefer `bb list` over reading `windows/*.json` yourself.
+Prefer `bb list` over reading `windows/*.json` yourself.
 
 ```sh
 bb list           # live windows, text
@@ -16,8 +16,6 @@ bb list --stale   # include shards that fail the live filter (debugging)
 ```
 
 If `bb` is not on `PATH`, install Babashka from https://github.com/babashka/babashka#installation and retry `bb list`. Prefer that over opening the JSON files. Reading `windows/*.json` is valid (those files are what the lister parses); it is the worse path when the lister is installed.
-
-When only first-fail stubs are on disk there is no `bb.edn`. In that case read `windows/*.json` until a later MCP start can install the listing tree.
 
 ## Pick a server and attach
 

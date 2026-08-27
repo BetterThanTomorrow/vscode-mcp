@@ -120,7 +120,7 @@ The installed `AGENTS.md` is the attach recipe. It says:
 
 1. You were pointed at registry home.
 2. Read `README.md` and `AGENTS.md`. This directory is overwritten. Put custom files in `~/.config/vscode-mcp`.
-3. When `bb.edn` is present, prefer `bb list` (or `--edn` / `--json`). When only first-fail stubs are on disk, read `windows/*.json`.
+3. Prefer `bb list` (or `--edn` / `--json`).
 4. If `bb` is missing, install Babashka and retry `bb list`. Prefer that over reading the JSON files.
 5. Use the list to pick the relevant server. The listing contains `workspaceRoot` and other, provider-dependent information needed for discovery and connect.
 6. Attach from `mcp`, or write client config from the same fields.
