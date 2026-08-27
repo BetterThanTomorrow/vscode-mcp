@@ -1,5 +1,5 @@
 (ns vscode-mcp.registry-listing
-  "Install registry-home support files (docs, bb list) on first MCP start."
+  "Install registry-home support files (docs, bb list, bb mcp) on first MCP start."
   (:require
    ["fs" :as fs]
    ["path" :as path]
@@ -8,7 +8,7 @@
    [vscode-mcp.registry-listing-stubs :as stubs]))
 
 (def consumer-files
-  ["README.md" "AGENTS.md" "bb.edn" "scripts/list_registry.clj"])
+  ["README.md" "AGENTS.md" "bb-mcp.md" "bb.edn" "scripts/list_registry.clj" "scripts/mcp.clj"])
 
 (def github-base
   "https://raw.githubusercontent.com/BetterThanTomorrow/vscode-mcp/master/assets/registry-content/")
@@ -26,7 +26,7 @@
   (reset! !fetch-override!+ nil))
 
 (defn registry-home
-  "Directory that holds README, AGENTS.md, bb.edn, scripts/, and windows/."
+  "Directory that holds README, AGENTS.md, bb-mcp.md, bb.edn, scripts/, and windows/."
   [config]
   (path/dirname (registry/registry-dir config)))
 

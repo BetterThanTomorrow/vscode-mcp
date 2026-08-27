@@ -24,3 +24,7 @@ Use the list to pick the relevant server. The listing contains `workspaceRoot` a
 Attach from the `mcp` fields: spawn `node <wrapperPath> <portFilePath> <host>`, or write the harness' MCP config from the same fields and then ask the user to connect.
 
 After attach, query MCP for live details. Shard session and runtime fields can lag; MCP is current.
+
+## If you cannot hold an MCP session
+
+Read `bb-mcp.md` and use `bb mcp` for one request at a time. Copy `serverName` and `windowId` from `bb list`.

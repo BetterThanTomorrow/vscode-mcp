@@ -30,16 +30,20 @@
     (fs/mkdirSync fallback #js {:recursive true})
     (fs/writeFileSync (path/join dir "README.md") "sibling-readme\n")
     (fs/writeFileSync (path/join dir "AGENTS.md") "sibling-agents\n")
+    (fs/writeFileSync (path/join dir "bb-mcp.md") "sibling-bb-mcp\n")
     (fs/writeFileSync (path/join dir "bb.edn") "{:paths [\"scripts\"]}\n")
     (fs/writeFileSync (path/join scripts "list_registry.clj") "(ns list-registry)\n")
+    (fs/writeFileSync (path/join scripts "mcp.clj") "(ns mcp)\n")
     (fs/writeFileSync (path/join fallback "README.md") "must-not-copy\n")
     dir))
 
 (defn- github-files []
   [["README.md" "github-readme\n"]
    ["AGENTS.md" "github-agents\n"]
+   ["bb-mcp.md" "github-bb-mcp\n"]
    ["bb.edn" "{:paths [\"scripts\"]}\n"]
-   ["scripts/list_registry.clj" "(ns list-registry)\n"]])
+   ["scripts/list_registry.clj" "(ns list-registry)\n"]
+   ["scripts/mcp.clj" "(ns mcp)\n"]])
 
 (defn- install-with-fetch!+
   [root fetch-fn]
@@ -74,10 +78,9 @@
            (-> (sut/maybe-install!+ config)
                (p/then (fn [result]
                          (is (= :sibling result))
-                         (is (= "sibling-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))
-                         (is (= "sibling-agents\n" (fs/readFileSync (path/join home "AGENTS.md") "utf8")))
-                         (is (fs/existsSync (path/join home "bb.edn")))
-                         (is (fs/existsSync (path/join home "scripts" "list_registry.clj")))
+                         (is (every? #(fs/existsSync (path/join home %)) sut/consumer-files))
+                         (is (= "sibling-bb-mcp\n" (fs/readFileSync (path/join home "bb-mcp.md") "utf8")))
+                         (is (= "(ns mcp)\n" (fs/readFileSync (path/join home "scripts" "mcp.clj") "utf8")))
                          (is (not (fs/existsSync (path/join home "fallback"))))))
                (p/finally (fn []
                             (cleanup! root)

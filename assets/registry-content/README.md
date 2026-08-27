@@ -7,6 +7,7 @@ The registry lives in `~/.config/vscode-mcp/registry` (let's call it the **regis
 * This README.md
 * [AGENTS.md](AGENTS.md)
 * A [Babashka](https://babashka.org) task, `bb list`, for listing the registry. It will parse the `./windows/*.json` files and list the discovery and attach information.
+* `bb mcp` (see [bb-mcp.md](bb-mcp.md)), for one MCP request to a live window when you cannot hold a normal MCP session.
 
 The easiest way to use the registry is probably to point your AI agent to the **registry home** and ask it to connect itself (or, if it can't do that fully, to create the necessary configuration so that you can connect the agent).
 
