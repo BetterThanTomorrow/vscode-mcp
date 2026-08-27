@@ -1,12 +1,12 @@
 # Window registry
 
-External AI harnesses (and humans) can discover a VS Code window's MCP server and attach to it: spawn the stdio wrapper, or write the client's MCP config from the same fields.
+External AI harnesses (and humans) can discover a VS Code window's MCP server and attach to it: spawn the stdio wrapper, write the client's MCP config from the same fields, or run `bb mcp` from registry home when they cannot hold a session.
 
 vscode-mcp is one MCP server per editor window. The registry is a file-backed **registry home** at `~/.config/vscode-mcp/registry`. Point an agent at that directory and ask it to connect.
 
 The user-facing copy for that directory is [`assets/registry-content/README.md`](../assets/registry-content/README.md). This document is the library contract: shards, writer, listing, and consumer wiring.
 
-The shard writer is in the library (`vscode-mcp.registry`, `vscode-mcp.registry-writer`). Registry home support files (`bb list`, installed docs) are specified under Listing and Install of support files. Canonical sources live in `assets/registry-content/`.
+The shard writer is in the library (`vscode-mcp.registry`, `vscode-mcp.registry-writer`). Registry home support files (`bb list`, `bb mcp`, installed docs) are specified under Listing and Install of support files. Canonical sources live in `assets/registry-content/`.
 
 ## Registry home
 
@@ -15,10 +15,15 @@ Registry home is a package. vscode-mcp owns the tree and overwrites files there.
 ```
 ~/.config/vscode-mcp/registry/        registry home
   README.md                           lodestar; installed as written
-  AGENTS.md                           attach recipe
-  bb.edn                              `bb list` (`:paths ["scripts"]`)
+  AGENTS.md                           session attach; points at bb-mcp.md when you cannot hold MCP
+  bb-mcp.md                           `bb mcp` recipe
+  bb.edn                              `bb list` and `bb mcp` (`:paths ["scripts"]`)
   scripts/list_registry.clj
+  scripts/mcp.clj
   windows/*.json                      one shard per window
+
+~/.config/vscode-mcp/mcp-media/       sibling of registry home
+  <serverName>-<windowId>/            image/audio files from `bb mcp` (same stem as the shard)
 ```
 
 Default shard directory: `~/.config/vscode-mcp/registry/windows/`. Override with `:registry/dir` (tests).
@@ -47,15 +52,17 @@ Backseat Driver opts in and puts compact REPL sessions on the shard. Joyride can
 
 ## Shard files
 
-Filename: `<server-name>-<window-id>.json` (for example `backseat-driver-ws-1a2b3c.json`).
+Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-ws-1a2b3c.json`).
 
 `windowId` is `vscode-mcp.cursor-config/instance-slug`: `ws-<hash>` with a workspace folder, `win-<hash>` without.
+
+`:cursor/server-name` is the consumer’s package.json `name` (Backseat Driver: `calva-backseat-driver`). That string is also Cursor’s register base, the ECA config key, the shard filename prefix, and the media-dir prefix. Cursor names are generation-suffixed (`<base>-<slug>-gN`). After a rename, an untracked old `backseat-driver-…-gN` entry can remain in workspaceState for the human to remove.
 
 ```json
 {
   "schemaVersion": 1,
-  "name": "backseat-driver-ws-1a2b3c",
-  "serverName": "backseat-driver",
+  "name": "calva-backseat-driver-ws-1a2b3c",
+  "serverName": "calva-backseat-driver",
   "windowId": "ws-1a2b3c",
   "workspaceRoot": "/Users/pez/Projects/my-app",
   "hostname": "Pappas-data",
@@ -91,6 +98,12 @@ Writes are atomic: temp file `<shard>.<pid>.<rand>.tmp` in the same directory, t
 
 Tests: `test/vscode_mcp/registry_test.cljs`, `test/vscode_mcp/registry_writer_test.cljs`.
 
+## Media files
+
+`bb mcp` writes image, audio, and resource `blob` parts under `~/.config/vscode-mcp/mcp-media/<serverName>-<windowId>/` (sibling of registry home; same stem as the shard file). The CLI process exits after the write; the Extension Host owns the sweep (`vscode-mcp.mcp-media`, hooked from `registry-writer/on-started!+` / `on-stopping!`).
+
+On MCP start: wait 10 minutes, then delete any file in that window’s dir whose mtime is older than 10 minutes. Missing files are not an error. Repeat while the socket is up (interval 60 s). On stop: clear timers, leave the directory. Empty dirs are not created on start.
+
 ## Listing
 
 `bb list` (installed under registry home) reads `windows/*.json` and prints discovery plus attach. Prefer it strongly enough that a missing `bb` gets installed ([Babashka](https://github.com/babashka/babashka#installation)) rather than skipping straight to the JSON files. Reading the shards is valid; they are what the lister parses.
@@ -100,7 +113,7 @@ Default: live shards only. `--stale` includes the rest. `--json` and `--edn` pri
 Text example (Backseat Driver `sessions` pretty-printed; other providers' custom keys print too):
 
 ```
-backseat-driver  ws-xf11vn  /Users/pez/Projects/backseat-driver/test-projects/example
+calva-backseat-driver  ws-xf11vn  /Users/pez/Projects/backseat-driver/test-projects/example
   host: Pappas-data.local  age 3s
   mcp:  node ~/.config/calva/backseat-driver/calva-mcp-server.js <portFile> 127.0.0.1
   sessions:
@@ -111,6 +124,8 @@ backseat-driver  ws-xf11vn  /Users/pez/Projects/backseat-driver/test-projects/ex
 Use the list to pick the relevant server. The listing contains `workspaceRoot` and other, provider-dependent information needed for discovery and connect.
 
 Then attach: `node <wrapperPath> <portFilePath> <host>`, or write the client's MCP config from those fields. After attach, query MCP for live details. Shard discovery can lag; MCP is current.
+
+If the agent cannot hold a normal MCP session, `bb mcp` is the no-session path: one JSON-RPC request to the window socket, one JSON envelope on stdout. Recipe: installed `bb-mcp.md`. Copy `serverName` and `windowId` from `bb list`.
 
 `watch-registry` (`bb watch-registry` in this repo) is a development event stream over the same shards. It stays in the vscode-mcp repo.
 
@@ -125,6 +140,7 @@ The installed `AGENTS.md` is the attach recipe. It says:
 5. Use the list to pick the relevant server. The listing contains `workspaceRoot` and other, provider-dependent information needed for discovery and connect.
 6. Attach from `mcp`, or write client config from the same fields.
 7. Query MCP for live details.
+8. If you cannot hold a session, read `bb-mcp.md` and use `bb mcp`.
 
 Pez authors `README.md`. Pez authors `AGENTS.md` to match this recipe.
 
@@ -136,8 +152,10 @@ Canonical sources in this repo:
 assets/registry-content/
   README.md
   AGENTS.md
+  bb-mcp.md
   bb.edn
   scripts/list_registry.clj
+  scripts/mcp.clj
   fallback/README.md          embed-only; not installed as a directory
   fallback/AGENTS.md
 ```
@@ -147,9 +165,9 @@ No extra `create-config` key. Requires `:registry/enabled?`. Hook: first `regist
 Source order:
 
 1. Debug (`goog.DEBUG`): `{extensionPath}/../vscode-mcp/assets/registry-content/` when that directory exists (sibling checkout).
-2. Else GitHub raw, branch `master`: the four consumer files from `https://raw.githubusercontent.com/BetterThanTomorrow/vscode-mcp/master/assets/registry-content/`.
+2. Else GitHub raw, branch `master`: the six consumer files from `https://raw.githubusercontent.com/BetterThanTomorrow/vscode-mcp/master/assets/registry-content/`.
 
-The full listing tree is not shipped in the VSIX. Debug sibling install copies only the four consumer files, not `fallback/`. Write when bytes differ.
+The full listing tree is not shipped in the VSIX. Debug sibling install copies only the six consumer files, not `fallback/`. Write when bytes differ. Grow `consumer-files` only after the new files exist; add the `mcp` task in the same batch as `scripts/mcp.clj`.
 
 A process-local flag records a **successful** fetch for this session. Stop/start MCP in the same window does not fetch again after success.
 
@@ -167,4 +185,4 @@ A failed fetch does not set the success flag, so the next `on-started!+` retries
 
 ## Consumer skill pointer
 
-When a user asks how to connect an external harness to this workstation's MCP: registry home is `~/.config/vscode-mcp/registry`. Point the agent at that directory. Keep the extension skill short; installed `AGENTS.md` owns the steps.
+When a user asks how to connect an external harness to this workstation's MCP: registry home is `~/.config/vscode-mcp/registry`. Point the agent at that directory. Keep the extension skill short; installed `AGENTS.md` owns session attach; `bb-mcp.md` owns `bb mcp`.
