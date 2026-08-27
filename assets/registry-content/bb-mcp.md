@@ -3,11 +3,11 @@
 From this directory, after `bb list`, run one MCP method against a live window and parse one JSON object on stdout. Copy `serverName` and `windowId` from `bb list`.
 
 ```sh
-bb mcp initialize --server-name <serverName> --window-id <windowId>
-bb mcp tools/list --server-name <serverName> --window-id <windowId>
-bb mcp resources/list --server-name <serverName> --window-id <windowId>
-bb mcp resources/templates/list --server-name <serverName> --window-id <windowId>
-bb mcp ping --server-name <serverName> --window-id <windowId>
+bb mcp initialize --server-name calva-backseat-driver --window-id <windowId>
+bb mcp tools/list --server-name calva-backseat-driver --window-id <windowId>
+bb mcp resources/list --server-name calva-backseat-driver --window-id <windowId>
+bb mcp resources/templates/list --server-name calva-backseat-driver --window-id <windowId>
+bb mcp ping --server-name calva-backseat-driver --window-id <windowId>
 ```
 
 `initialize` is how you learn the server (`serverInfo`, `instructions`, `description`). Tool catalogs are `tools/list`. Skills are `resources/list` and `skill://index.json` (read with `resources/read`).
@@ -17,14 +17,14 @@ bb mcp ping --server-name <serverName> --window-id <windowId>
 Empty-args tool (omit `--args`):
 
 ```sh
-bb mcp tools/call --server-name <serverName> --window-id <windowId> \
+bb mcp tools/call --server-name calva-backseat-driver --window-id <windowId> \
   --name clojure_list_sessions
 ```
 
 Nested arguments as JSON on stdin (`--args -`):
 
 ```sh
-bb mcp tools/call --server-name <serverName> --window-id <windowId> \
+bb mcp tools/call --server-name calva-backseat-driver --window-id <windowId> \
   --name clojure_evaluate_code --args - <<'EOF'
 {"code":"(+ 1 2)","namespace":"user","replSessionKey":"clj","who":"agent"}
 EOF
@@ -33,7 +33,7 @@ EOF
 Read a skill:
 
 ```sh
-bb mcp resources/read --server-name <serverName> --window-id <windowId> \
+bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId> \
   --uri skill://backseat-driver/SKILL.md
 ```
 
