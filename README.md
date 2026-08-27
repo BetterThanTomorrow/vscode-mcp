@@ -1,6 +1,6 @@
 # vscode-mcp
 
-A [ClojureScript](https://clojurescript.org) library for VS Code extensions that already declare Copilot **`languageModelTools`** and **`chatSkills`** in `package.json`, and want the same tools and resources available over MCP — with zero-config Cursor registration (and optional ECA registration).
+A [ClojureScript](https://clojurescript.org) library for VS Code extensions that already declare Copilot **`languageModelTools`** and **`chatSkills`** in `package.json`, and want the same tools and resources available over MCP: zero-config Cursor registration, optional ECA registration, and an optional window registry so external agents can discover and connect.
 
 The library:
 
@@ -8,6 +8,7 @@ The library:
 2. Bundles a Node.js `stdio` wrapper that MCP clients spawn; the wrapper relays stdin/stdout to the socket.
 3. Reads your existing Copilot manifest and exposes it as MCP tools and resources.
 4. Auto-registers with Cursor via [`vscode.cursor.mcp.registerServer`](https://cursor.com/docs/extension-api).
+5. Optionally keeps a **window registry** at `~/.config/vscode-mcp/registry`: one entry per editor window, with discovery and attach information. Point an agent at that directory and ask it to connect. Feature doc: [docs/registry.md](docs/registry.md).
 
 If your extension does not declare Copilot tools and skills, this library is not for you.
 
@@ -119,11 +120,11 @@ Call `maybe-start!+` from `activate`. Use `start!+` / `stop!+` / `register-with-
 
 ### Optional window registry
 
-Pass `:registry/enabled? true` to write a JSON shard while the socket is running, so external agents can discover this window without being inside the editor. Default directory: `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`). Filename is `<server-name>-<window-id>.json`.
+Pass `:registry/enabled? true` to join the registry. Supply `:registry/custom-data+` for provider discovery (for example REPL sessions) and call `update-registry!+` when that data changes. Wiring: [docs/registry.md](docs/registry.md).
 
-Supply `:registry/custom-data+` — `(fn [state] …)` returning a promise of a map, e.g. `{:sessions […]}` — to merge consumer fields. Core envelope keys are protected. Call `(vscode-mcp.core/update-registry!+ config)` when that data changes; the library debounce is 1000 ms. Heartbeat (30s) only refreshes `updatedAt`. Stop unlinks the shard.
+### Optional ECA registration
 
-Library default for `:mcp/auto-register-eca?` is **false** — pass `true` from your setting if you want ECA `.eca/config.json` registration. Full Cursor/ECA behavior: [AGENTS.md](AGENTS.md).
+Library default for `:mcp/auto-register-eca?` is **false**. Pass `true` from your setting if you want ECA `.eca/config.json` registration. Full Cursor/ECA behavior: [AGENTS.md](AGENTS.md).
 
 ## Reference Implementations
 
