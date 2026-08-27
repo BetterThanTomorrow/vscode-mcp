@@ -64,7 +64,7 @@
 
 (defn compact-build
   [build]
-  (cond-> (select-keys build [:buildId :isActive :isCurrentlyConnected :runtimeCount])
+  (cond-> (select-keys build [:buildId :isActive :isHumansActiveRuntime :runtimeCount])
     (:mostRecentRuntime build)
     (assoc :mostRecentRuntime (compact-runtime (:mostRecentRuntime build)))))
 
@@ -190,11 +190,11 @@
           (rid [b]
             (get-in b [:mostRecentRuntime :runtimeId]))
           (interesting? [b]
-            (or (:isCurrentlyConnected b)
+            (or (:isHumansActiveRuntime b)
                 (pos? (:runtimeCount b 0))))
           (sig [b]
-            [(:buildId b) (:isCurrentlyConnected b) (:runtimeCount b) (rid b)])
-          (row [{:keys [session build rt]}]
+            [(:buildId b) (:isHumansActiveRuntime b) (:runtimeCount b) (rid b)])
+          (row [{:keys [session build rt project]}]
             (let [ts (.format (java.time.LocalTime/now)
                               (java.time.format.DateTimeFormatter/ofPattern "HH:mm:ss"))
                   server (:name event)
@@ -202,16 +202,19 @@
                   event-type (if-let [reason (:reason event)]
                                (str (name op) "/" (name reason))
                                (name op))]
-              (str (string/join "  " (map cell [ts server event-type session build rt]))
+              (str (string/join "  " (map cell [ts server event-type session build rt
+                                                (or project (:workspaceRoot event))]))
                    "\n")))
           (session-rows [session builds]
             (if (seq builds)
               (map (fn [b]
                      (row {:session (:replSessionKey session)
                            :build (:buildId b)
-                           :rt (rid b)}))
+                           :rt (rid b)
+                           :project (:projectRoot session)}))
                    builds)
-              [(row {:session (:replSessionKey session)})]))]
+              [(row {:session (:replSessionKey session)
+                     :project (:projectRoot session)})]))]
     (let [op (:op event)
           session (:session event)]
       (case op
