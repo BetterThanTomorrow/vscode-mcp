@@ -242,43 +242,26 @@
             (some-> (find-skill-by-name resources name)
                     (read-skill-sibling-resource uri rel-path)))))))
 
+(def ^:private catalog-pointer
+  "Tools are listed by `tools/list`. Skills are listed by `resources/list` and `skill://index.json` (read with `resources/read`).")
+
 (defn build-server-instructions
-  "Generates an instructional string for MCP clients based on available tools and resources.
-   Optional `:base-text` can be provided to prepend custom instructions."
-  [{:keys [base-text tools resources]}]
-  (let [tools-text (when (seq tools)
-                     (str "Available tools:\n"
-                          (string/join "\n" (map (fn [{:keys [name description]}]
-                                                   (str "- **`" name "`**: " description))
-                                                 tools))))
-        resources-text (when (seq resources)
-                         (str "Specialized skills are available as resources. Use `resources/list` and `resources/read` to load them — prefer the full skill URI (or read `skill://index.json` for discovery):\n"
-                              (string/join "\n" (map (fn [{:keys [name description uri]}]
-                                                       (str "- **" name "** (`" uri "`): " description))
-                                                     resources))))
-        parts (remove string/blank? [base-text tools-text resources-text])]
-    (when (seq parts)
-      (string/join "\n\n" parts))))
+  "Returns initialize `instructions`: non-blank `:base-text` joined with a catalog pointer."
+  [{:keys [base-text]}]
+  (string/join "\n\n" (remove string/blank? [base-text catalog-pointer])))
 
 (defn build-initialize-result
   "Generates an MCP `initialize` result map.
    Extracts `name` and `version` from the extension's package.json, which can be overridden via `opts`.
-   Also gathers available tools, resources, and generates `serverUseInstructions`.
    `opts` may include:
    - `:name`: Override the server name.
    - `:version`: Override the server version.
-   - `:base-text`: Prepend custom text to the generated server instructions.
-   - `:settings`: Map of {when-clause boolean} to filter tools and resources."
+   - `:base-text`: Prepend custom text to the generated server instructions."
   [context & [opts]]
   (let [package-json (oget-in context ["extension" "packageJSON"])
         server-name (or (:name opts) (oget package-json "name") "vscode-mcp-server")
         server-version (or (:version opts) (oget package-json "version") "0.0.0")
-        settings (:settings opts)
-        tools (get-tools context {:settings settings})
-        resources (get-resources context {:settings settings})
-        instructions (build-server-instructions {:base-text (:base-text opts)
-                                                 :tools tools
-                                                 :resources resources})]
+        instructions (build-server-instructions {:base-text (:base-text opts)})]
     {:protocolVersion "2024-11-05"
      :capabilities {:tools {}
                     :resources {}
