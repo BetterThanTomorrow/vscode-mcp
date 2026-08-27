@@ -2,6 +2,7 @@
   "Process-local registry writer: debounce, heartbeat, generation fencing."
   (:require
    [promesa.core :as p]
+   [vscode-mcp.mcp-media :as mcp-media]
    [vscode-mcp.registry :as registry]
    [vscode-mcp.registry-listing :as listing]))
 
@@ -47,7 +48,8 @@
   (doseq [[_ entry] @!writers]
     (clear-timers! entry))
   (reset! !writers {})
-  (reset! !generations {}))
+  (reset! !generations {})
+  (mcp-media/clear-media-state!))
 
 (defn- log-warn
   [config & args]
@@ -131,6 +133,7 @@
                                  :heartbeat-timer nil})
       (start-heartbeat! key)
       (listing/maybe-install!+ config)
+      (mcp-media/on-started! {:config config :server-info server-info})
       (refresh-and-write!+ key))))
 
 (defn on-stopping!
@@ -138,6 +141,7 @@
   [config]
   (when-let [key (find-key (:cursor/server-name config))]
     (when-let [entry (get @!writers key)]
+      (mcp-media/on-stopping! {:config config :server-info (:server-info entry)})
       (clear-timers! entry)
       (bump-generation! key)
       (swap! !writers dissoc key))))
