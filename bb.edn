@@ -6,11 +6,21 @@
              [vendor-jsonc-parser]
              [watch-registry])
 
+  test-bb
+  {:doc "Run Babashka tests for listing scripts (mcp.clj)."
+   :extra-paths ["assets/registry-content/scripts" "test-bb"]
+   :requires ([clojure.test :as t]
+              [mcp-test])
+   :task (let [{:keys [fail error]} (t/run-tests 'mcp-test)]
+           (when (pos? (+ fail error))
+             (System/exit 1)))}
+
   test
   {:doc "Compiles and runs unit tests."
    :task (do
            (shell "clojure -M:shadow-cljs compile test")
-           (shell "node out/test.js"))}
+           (shell "node out/test.js")
+           (run 'test-bb))}
 
   vendor-jsonc-parser
   {:doc "Bundle microsoft/jsonc-parser into src/vscode_mcp/vendor/jsonc_parser.js [--version <ver>]"
