@@ -2,7 +2,8 @@
   "Process-local registry writer: debounce, heartbeat, generation fencing."
   (:require
    [promesa.core :as p]
-   [vscode-mcp.registry :as registry]))
+   [vscode-mcp.registry :as registry]
+   [vscode-mcp.registry-listing :as listing]))
 
 (defonce !writers (atom {}))
 (defonce !generations (atom {}))
@@ -129,6 +130,7 @@
                                  :debounce-timer nil
                                  :heartbeat-timer nil})
       (start-heartbeat! key)
+      (listing/maybe-install!+ config)
       (refresh-and-write!+ key))))
 
 (defn on-stopping!

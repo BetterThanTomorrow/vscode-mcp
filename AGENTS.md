@@ -118,6 +118,8 @@ Inert until the consumer passes `:registry/enabled? true`. On start the library 
 
 `:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the shard; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `workspaceRoot`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
 
+On first `on-started!+` in the Extension Host process, the library also installs registry-home support files (`README.md`, `AGENTS.md`, `bb.edn`, `scripts/list_registry.clj`) fire-and-forget from a debug sibling checkout or GitHub `master`. No extra `create-config` key. Details: [docs/registry.md](docs/registry.md).
+
 ## Skill resources (SEP-2640 subset)
 
 | Topic | Contract |

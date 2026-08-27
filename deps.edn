@@ -1,4 +1,4 @@
-{:paths ["src" "test"]
+{:paths ["src" "test" "assets"]
  :deps {org.clojure/clojure {:mvn/version "1.12.4"}
         org.clojure/clojurescript {:mvn/version "1.12.134"}
         thheller/shadow-cljs {:mvn/version "3.4.4"}

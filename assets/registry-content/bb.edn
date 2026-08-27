@@ -1,0 +1,7 @@
+{:paths ["scripts"]
+ :tasks
+ {:requires ([list-registry])
+
+  list
+  {:doc "List MCP windows for attach [--json | --edn] [--stale]"
+   :task (list-registry/main! *command-line-args*)}}}
