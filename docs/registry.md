@@ -44,7 +44,7 @@ Inert until the consumer passes `:registry/enabled? true` in `create-config` (li
 
 Call `(vscode-mcp.core/update-registry!+ config)` when that custom data changes. The library debounces 1000 ms (`:registry/debounce-ms`).
 
-Protected envelope keys cannot be overwritten by custom data: `schemaVersion`, `name`, `serverName`, `windowId`, `workspaceRoot`, `hostname`, `pid`, `updatedAt`, `mcp`.
+Protected envelope keys cannot be overwritten by custom data: `schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`.
 
 Other `create-config` keys: `:registry/heartbeat-ms` (default 30000), `:registry/dir` (optional).
 
@@ -64,7 +64,9 @@ Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-w
   "name": "calva-backseat-driver-ws-1a2b3c",
   "serverName": "calva-backseat-driver",
   "windowId": "ws-1a2b3c",
-  "workspaceRoot": "/Users/pez/Projects/my-app",
+  "appId": "cursor",
+  "workspaceRoot": "/Users/pez/Projects/my-app.code-workspace",
+  "workspaceFolder": "/Users/pez/Projects/my-app",
   "hostname": "Pappas-data",
   "pid": 48291,
   "updatedAt": "2026-08-25T09:30:00.000Z",
@@ -77,7 +79,9 @@ Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-w
 }
 ```
 
-- `workspaceRoot` is the workspace folder's absolute `fsPath`, omitted when there is no folder.
+- `appId` is the editor CLI slug (`cursor`, `code`, `code-insiders`) from `{appRoot}/product.json` `applicationName`, or `uriScheme` if that file is missing.
+- `workspaceRoot` is the path the instance slug hashes: the `.code-workspace` file, or the first folder if there is no workspace file. Omitted when there is no folder.
+- `workspaceFolder` is the first folder path when the window has folders. `bb list` uses it to relativize session `projectRoot` (else the parent of a `.code-workspace` `workspaceRoot`). That directory can differ from `workspaceRoot` in a multi-root window.
 - `hostname` is `os.hostname()` as the OS reports it.
 - `mcp` is present only when the socket has an assigned port. `mcp.host` defaults to `127.0.0.1`. `portFilePath` is the live port file (`:server/port-file-uri`). `wrapperPath` is the installed stdio wrapper.
 - Consumer keys (for example `sessions`) sit beside the envelope.
@@ -113,7 +117,7 @@ Default: live shards only. `--stale` includes the rest. `--json` and `--edn` pri
 Text example (Backseat Driver `sessions` pretty-printed; other providers' custom keys print too):
 
 ```
-calva-backseat-driver  ws-xf11vn  /Users/pez/Projects/backseat-driver/test-projects/example
+calva-backseat-driver  ws-xf11vn  cursor  /Users/pez/Projects/backseat-driver/test-projects/example
   host: Pappas-data.local  age 3s
   mcp:  node ~/.config/calva/backseat-driver/calva-mcp-server.js <portFile> 127.0.0.1
   sessions:
@@ -121,7 +125,9 @@ calva-backseat-driver  ws-xf11vn  /Users/pez/Projects/backseat-driver/test-proje
     cljs    .  :app #8 "Chrome",  :tui #10 "Node"
 ```
 
-Use the list to pick the relevant server. The listing contains `workspaceRoot` and other, provider-dependent information needed for discovery and connect.
+First line: `serverName`, `windowId`, `appId`, `workspaceRoot` (absolute hashed location; text `no folder` when omitted). Session `projectRootDisplay` is relative to `workspaceFolder` (first folder), or the parent of a `.code-workspace` `workspaceRoot`.
+
+Use the list to pick the relevant server. The listing contains `appId` (editor CLI slug), `workspaceRoot` (workspace file or folder; text `no folder` when empty), and other, provider-dependent information needed for discovery and connect.
 
 Then attach: `node <wrapperPath> <portFilePath> <host>`, or write the client's MCP config from those fields. After attach, query MCP for live details. Shard discovery can lag; MCP is current.
 
@@ -137,7 +143,7 @@ The installed `AGENTS.md` is the attach recipe. It says:
 2. Read `README.md` and `AGENTS.md`. This directory is overwritten. Put custom files in `~/.config/vscode-mcp`.
 3. Prefer `bb list` (or `--edn` / `--json`).
 4. If `bb` is missing, install Babashka and retry `bb list`. Prefer that over reading the JSON files.
-5. Use the list to pick the relevant server. The listing contains `workspaceRoot` and other, provider-dependent information needed for discovery and connect.
+5. Use the list to pick the relevant server. The listing contains `appId`, `workspaceRoot`, and other, provider-dependent information needed for discovery and connect.
 6. Attach from `mcp`, or write client config from the same fields.
 7. Query MCP for live details.
 8. If you cannot hold a session, read `bb-mcp.md` and use `bb mcp`.

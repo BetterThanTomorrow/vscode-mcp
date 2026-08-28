@@ -6,6 +6,11 @@
 (defn- short-hash [x]
   (.toString (js/Math.abs (hash x)) 36))
 
+(defn app-id
+  "Returns the editor CLI slug from product.json `applicationName`, or `uri-scheme`."
+  [application-name uri-scheme]
+  (or (not-empty application-name) (not-empty uri-scheme)))
+
 (defn instance-slug
   "Returns `ws-<hash>` of `app-id` and the workspace file path, or the folder path if there is no workspace file.
    Without a folder: `win-<hash>` of `app-id` and the Extension Host pid."

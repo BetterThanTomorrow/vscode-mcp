@@ -9,8 +9,8 @@
 (def schema-version 1)
 
 (def core-keys
-  #{:schemaVersion :name :serverName :windowId
-    :workspaceRoot :hostname :pid :updatedAt :mcp})
+  #{:schemaVersion :name :serverName :windowId :appId
+    :workspaceRoot :workspaceFolder :hostname :pid :updatedAt :mcp})
 
 (def default-heartbeat-ms 30000)
 (def default-debounce-ms 1000)
@@ -73,7 +73,7 @@
                            (:cursor/script-relative-path config))))))
 
 (defn build-envelope
-  [{:keys [server-name window-id workspace-root hostname pid updated-at mcp]}]
+  [{:keys [server-name window-id app-id workspace-root workspace-folder hostname pid updated-at mcp]}]
   (cond-> {:schemaVersion schema-version
            :name (shard-name server-name window-id)
            :serverName server-name
@@ -81,7 +81,9 @@
            :hostname hostname
            :pid pid
            :updatedAt updated-at}
+    app-id (assoc :appId app-id)
     workspace-root (assoc :workspaceRoot workspace-root)
+    workspace-folder (assoc :workspaceFolder workspace-folder)
     mcp (assoc :mcp mcp)))
 
 (defn merge-custom-data
@@ -96,7 +98,9 @@
   (let [envelope (build-envelope
                   {:server-name (:cursor/server-name config)
                    :window-id (:server/instance-slug server-info)
+                   :app-id (:server/app-id server-info)
                    :workspace-root (:server/workspace-root server-info)
+                   :workspace-folder (:server/workspace-folder server-info)
                    :hostname (current-hostname)
                    :pid (current-pid)
                    :updated-at (now-iso)

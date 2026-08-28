@@ -1,11 +1,13 @@
 # `bb mcp`
 
-From this directory, after `bb list`, run one MCP method against a live window and parse one JSON object on stdout. Copy `serverName` and `windowId` from `bb list`.
+An MCP client of sort. Use when a harness MCP connector can't reach the VS Code machine.
+
+From the registry home directory run one MCP method against a live window and parse one JSON object on stdout. Copy `serverName` and `windowId` from `bb list`. (For discovery, the list header also shows `appId` and the hashed location.)
 
 ```sh
 bb mcp initialize --server-name calva-backseat-driver --window-id <windowId>
 bb mcp tools/list --server-name calva-backseat-driver --window-id <windowId>
-bb mcp resources/list --server-name calva-backseat-driver --window-id <windowId>
+bb mcp resources/list --server-name calva-backseat-driver --window-id <windowId> # pay attention to the skills provided here
 bb mcp resources/templates/list --server-name calva-backseat-driver --window-id <windowId>
 bb mcp ping --server-name calva-backseat-driver --window-id <windowId>
 ```

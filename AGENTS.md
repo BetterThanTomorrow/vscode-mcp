@@ -116,7 +116,7 @@ Feature doc: [docs/registry.md](docs/registry.md).
 
 Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, and heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`). `stop!+` fences in-flight writes and unlinks the shard.
 
-`:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the shard; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `workspaceRoot`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
+`:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the shard; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
 
 On first `on-started!+` in the Extension Host process, the library also installs registry-home support files (`README.md`, `AGENTS.md`, `bb-mcp.md`, `bb.edn`, `scripts/list_registry.clj`, `scripts/mcp.clj`) fire-and-forget from a debug sibling checkout or GitHub `master`. Grow `consumer-files` only after those paths exist; add the listing `mcp` task in the same batch as `scripts/mcp.clj`. Media sweep is hooked from `registry-writer` (`vscode-mcp.mcp-media`), not from `core/start-flow!+`. No extra `create-config` key. Details: [docs/registry.md](docs/registry.md).
 

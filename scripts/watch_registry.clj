@@ -78,7 +78,7 @@
   [shard]
   (when shard
     (-> shard
-        (select-keys [:name :serverName :windowId :workspaceRoot :hostname :pid :mcp])
+        (select-keys [:name :serverName :windowId :appId :workspaceRoot :hostname :pid :mcp])
         (assoc :sessions (mapv compact-session (:sessions shard))))))
 
 (defn session-index
@@ -92,7 +92,7 @@
 
 (defn with-identity
   [view event]
-  (merge (select-keys view [:name :serverName :windowId :workspaceRoot])
+  (merge (select-keys view [:name :serverName :windowId :appId :workspaceRoot])
          event))
 
 (defn session-events

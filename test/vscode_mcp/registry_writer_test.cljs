@@ -26,7 +26,9 @@
   {:server/instance-slug "ws-abc"
    :server/assigned-port 1664
    :server/host "127.0.0.1"
+   :server/app-id "cursor"
    :server/workspace-root "/proj"
+   :server/workspace-folder "/proj"
    :server/port-file-uri #js {:fsPath "/tmp/port"}})
 
 (defn- shard-path [dir]
@@ -63,7 +65,9 @@
                            (is (= "backseat-driver-ws-abc" (:name doc)))
                            (is (= "backseat-driver" (:serverName doc)))
                            (is (= "ws-abc" (:windowId doc)))
+                           (is (= "cursor" (:appId doc)))
                            (is (= "/proj" (:workspaceRoot doc)))
+                           (is (= "/proj" (:workspaceFolder doc)))
                            (is (= (.-pid js/process) (:pid doc)))
                            (is (= 1664 (get-in doc [:mcp :port])))
                            (is (= [{:replSessionKey "clj"}] (:sessions doc))))))

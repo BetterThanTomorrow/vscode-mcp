@@ -11,11 +11,11 @@
   60000)
 
 (def envelope-keys
-  #{:schemaVersion :name :serverName :windowId :workspaceRoot
+  #{:schemaVersion :name :serverName :windowId :appId :workspaceRoot :workspaceFolder
     :hostname :pid :updatedAt :mcp :sessions})
 
 (def snapshot-keys
-  #{:serverName :windowId :workspaceRoot :hostname :ageMs :mcp :sessions})
+  #{:serverName :windowId :appId :workspaceRoot :hostname :ageMs :mcp :sessions})
 
 (def cli-spec
   {:coerce {:json :boolean
@@ -89,15 +89,26 @@
   [shard]
   (not-empty (apply dissoc shard envelope-keys)))
 
+(defn session-rel-root
+  "Directory used to relativize session projectRoot. First folder if present,
+   else parent of a .code-workspace path, else workspaceRoot."
+  [shard]
+  (or (not-empty (:workspaceFolder shard))
+      (when-let [root (:workspaceRoot shard)]
+        (if (string/ends-with? root ".code-workspace")
+          (str (fs/parent root))
+          root))))
+
 (defn window-snapshot
   [shard]
   (let [ws (:workspaceRoot shard)
-        sessions (mapv #(session-snapshot % ws) (:sessions shard))
+        sessions (mapv #(session-snapshot % (session-rel-root shard)) (:sessions shard))
         extra (extra-discovery shard)]
     (cond-> {:serverName (:serverName shard)
              :windowId (:windowId shard)
              :hostname (:hostname shard)
              :ageMs (age-ms (:updatedAt shard))}
+      (:appId shard) (assoc :appId (:appId shard))
       ws (assoc :workspaceRoot ws)
       (:mcp shard) (assoc :mcp (select-keys (:mcp shard)
                                            [:host :port :wrapperPath :portFilePath]))
@@ -147,7 +158,8 @@
   [snap]
   (let [header (string/join "  " (filter some? [(:serverName snap)
                                                 (:windowId snap)
-                                                (:workspaceRoot snap)]))
+                                                (:appId snap)
+                                                (or (:workspaceRoot snap) "no folder")]))
         age-s (quot (:ageMs snap 0) 1000)
         sessions (:sessions snap)
         key-width (if (seq sessions)

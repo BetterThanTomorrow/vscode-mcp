@@ -3,6 +3,14 @@
    [cljs.test :refer [deftest is testing]]
    [vscode-mcp.cursor-config :as sut]))
 
+(deftest app-id-test
+  (testing "prefers product applicationName"
+    (is (= "code" (sut/app-id "code" "vscode"))))
+  (testing "falls back to uriScheme"
+    (is (= "vscode-insiders" (sut/app-id nil "vscode-insiders"))))
+  (testing "nil when both missing"
+    (is (nil? (sut/app-id nil nil)))))
+
 (deftest instance-slug-test
   (testing "workspace path yields deterministic ws- slug"
     (is (re-matches #"ws-[a-z0-9]+"

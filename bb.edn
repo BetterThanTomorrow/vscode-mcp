@@ -7,11 +7,12 @@
              [watch-registry])
 
   test-bb
-  {:doc "Run Babashka tests for listing scripts (mcp.clj)."
+  {:doc "Run Babashka tests for listing scripts (mcp.clj, list_registry.clj)."
    :extra-paths ["assets/registry-content/scripts" "test-bb"]
    :requires ([clojure.test :as t]
-              [mcp-test])
-   :task (let [{:keys [fail error]} (t/run-tests 'mcp-test)]
+              [mcp-test]
+              [list-registry-test])
+   :task (let [{:keys [fail error]} (t/run-tests 'mcp-test 'list-registry-test)]
            (when (pos? (+ fail error))
              (System/exit 1)))}
 

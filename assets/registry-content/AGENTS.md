@@ -19,7 +19,7 @@ If `bb` is not on `PATH`, install Babashka from https://github.com/babashka/baba
 
 ## Pick a server and attach
 
-Use the list to pick the relevant server. The listing contains `workspaceRoot` and other, provider-dependent information needed for discovery and connect.
+Use the list to pick the relevant server. The listing contains `appId` (editor CLI slug), `workspaceRoot` (workspace file or folder; text `no folder` when empty), and other, provider-dependent information needed for discovery and connect.
 
 Attach from the `mcp` fields: spawn `node <wrapperPath> <portFilePath> <host>`, or write the harness' MCP config from the same fields and then ask the user to connect.
 
