@@ -64,11 +64,12 @@
 (deftest parse-cli-help
   (let [help (parse "--help")
         dash-h (parse "-h")]
-    (is (= "invalid-args" (err-code help)))
-    (is (= 1 (:mcp/exit help)))
-    (is (re-find #"bb-mcp.md" (get-in help [:mcp/error :message])))
-    (is (re-find #"--server-name" (get-in help [:mcp/error :message])))
-    (is (= "invalid-args" (err-code dash-h)))))
+    (is (nil? (:mcp/error help)))
+    (is (= 0 (:mcp/exit help)))
+    (is (re-find #"bb-mcp.md" (:mcp/result help)))
+    (is (re-find #"--server-name" (:mcp/result help)))
+    (is (nil? (:mcp/error dash-h)))
+    (is (= 0 (:mcp/exit dash-h)))))
 
 (deftest parse-cli-restrict
   (let [unknown (parse "ping" "--nope" "x")]
@@ -220,10 +221,10 @@
 
 (deftest main-help-and-uncaught
   (let [{:keys [exit parsed]} (capture-main ["--help"])]
-    (is (= 1 exit))
-    (is (false? (:ok parsed)))
-    (is (= "invalid-args" (get-in parsed [:error :code])))
-    (is (re-find #"bb-mcp.md" (get-in parsed [:error :message]))))
+    (is (= 0 exit))
+    (is (true? (:ok parsed)))
+    (is (string? (:result parsed)))
+    (is (re-find #"bb-mcp.md" (:result parsed))))
   (with-redefs [mcp/parse-cli (fn [_]
                                 (throw (ex-info "boom" {})))]
     (let [{:keys [exit parsed]} (capture-main ["ping"])]
@@ -256,7 +257,7 @@
     (is (= "initialize" (:mcp/verb init)))))
 
 (deftest parse-cli-help-readme-recipe
-  (let [msg (get-in (parse "--help") [:mcp/error :message])]
+  (let [msg (:mcp/result (parse "--help"))]
     (is (re-find #"--readme" msg))
     (is (re-find #"--readme-tool" msg))
     (is (not (re-find #"initialize" msg)))))

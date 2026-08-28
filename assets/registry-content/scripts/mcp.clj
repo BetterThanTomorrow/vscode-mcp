@@ -26,7 +26,7 @@
           :readme-tool {:desc "Inspect one tool by name (description + inputSchema)"}
           :help {:coerce :boolean
                  :alias :h
-                 :desc "Print usage as an invalid-args envelope"}
+                 :desc "Print usage as a JSON result"}
           :hhelp {:coerce :boolean
                   :desc "Plain-text CLI usage"}
           :hreadme {:coerce :boolean
@@ -64,7 +64,9 @@
              :mcp/plain-text (briefing/plain-help-text kind opts-text)
              :mcp/exit 0)
       (when (:help opts)
-        (invalid-args ctx (briefing/cli-help-text opts-text))))))
+        (assoc ctx
+               :mcp/result (briefing/cli-help-text opts-text)
+               :mcp/exit 0)))))
 
 (defn- readme-job
   [opts]
@@ -495,6 +497,7 @@
     (cond
       (:mcp/error parsed) parsed
       (:mcp/plain-text parsed) parsed
+      (get-in parsed [:mcp/opts :help]) parsed
       :else
       (let [prepared (-> parsed gather-stdin resolve-window)]
         (if (:mcp/error prepared)
@@ -509,7 +512,7 @@
                 rewrite-media-parts)))))))
 
 (defn main!
-  "Prints one JSON envelope on stdout and returns 0 or 1, except `--hhelp` / `--hreadme-tool` (help text) and `--hreadme` (briefing as text), which print plain text and return 0. Require-safe: no `System/exit`."
+  "Prints one JSON envelope on stdout and returns 0 or 1, except `--hhelp` / `--hreadme-tool` (help text) and `--hreadme` (briefing as text), which print plain text and return 0. `--help` / `-h` print usage as a JSON success envelope. Require-safe: no `System/exit`."
   [args]
   (try
     (let [ctx (run-pipeline {:mcp/argv args})]

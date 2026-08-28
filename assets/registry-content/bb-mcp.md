@@ -68,7 +68,7 @@ bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId>
 
 Connect has its own 5 second budget. Connect failure is `window-gone`, not `timeout`.
 
-Agents use `--help` / `-h`: JSON `invalid-args` envelope, exit 1, usage in `error.message`. Humans use `--hhelp` for usage (plain text, exit 0, no shard flags). `--hreadme` needs `--server-name` / `--window-id` and prints the live briefing as plain text (exit 0). `--hreadme-tool` is prose help for `--readme-tool` (plain text, exit 0, no shard flags).
+`--help` / `-h` prints usage as the JSON `result`. `--hhelp` is the same usage as plain text.
 
 ## Envelope
 
