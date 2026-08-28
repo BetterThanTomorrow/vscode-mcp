@@ -70,9 +70,12 @@
     (responses/success-response id result)))
 
 (defn- handle-tools-list
-  [context id opts]
+  [context id params opts]
   (responses/success-response id
-                              {:tools (manifest/get-tools context (manifest-opts opts))}))
+                              {:tools (manifest/get-tools context
+                                                          (assoc (manifest-opts opts)
+                                                                 :includeUserDescription
+                                                                 (true? (:includeUserDescription params))))}))
 
 (defn- handle-resources-list
   [context id opts]
@@ -103,7 +106,7 @@
   [context {:keys [method params id]} opts]
   (case method
     "initialize" (handle-initialize context id opts)
-    "tools/list" (handle-tools-list context id opts)
+    "tools/list" (handle-tools-list context id params opts)
     "resources/list" (handle-resources-list context id opts)
     "resources/templates/list" (handle-resource-templates-list context id opts)
     "resources/read" (handle-resources-read context id params opts)

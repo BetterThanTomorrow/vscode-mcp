@@ -3,6 +3,14 @@
    [cljs.test :refer [deftest is testing]]
    [vscode-mcp.cursor-config :as sut]))
 
+(deftest app-id-test
+  (testing "prefers product applicationName"
+    (is (= "code" (sut/app-id "code" "vscode"))))
+  (testing "falls back to uriScheme"
+    (is (= "vscode-insiders" (sut/app-id nil "vscode-insiders"))))
+  (testing "nil when both missing"
+    (is (nil? (sut/app-id nil nil)))))
+
 (deftest instance-slug-test
   (testing "workspace path yields deterministic ws- slug"
     (is (re-matches #"ws-[a-z0-9]+"
@@ -29,6 +37,25 @@
     (is (= (sut/instance-slug {})
            (sut/instance-slug {}))
         "deterministic when called twice")))
+
+(deftest instance-slug-app-and-workspace-file-test
+  (testing "editor app distinguishes otherwise identical folders"
+    (is (not= (sut/instance-slug #:instance{:app-id "cursor" :workspace-root-path "/a/b"})
+              (sut/instance-slug #:instance{:app-id "vscode" :workspace-root-path "/a/b"}))))
+
+  (testing "workspace file distinguishes a .code-workspace from a plain folder"
+    (is (not= (sut/instance-slug #:instance{:app-id "cursor" :workspace-file-path "/ws/project.code-workspace" :workspace-root-path "/a/b"})
+              (sut/instance-slug #:instance{:app-id "cursor" :workspace-root-path "/a/b"}))))
+
+  (testing "workspace file wins over folder path"
+    (is (= (sut/instance-slug #:instance{:app-id "cursor" :workspace-file-path "/ws/project.code-workspace" :workspace-root-path "/a/b"})
+           (sut/instance-slug #:instance{:app-id "cursor" :workspace-file-path "/ws/project.code-workspace" :workspace-root-path "/other"}))))
+
+  (testing "empty window includes app in the pid hash"
+    (is (not= (sut/instance-slug #:instance{:app-id "cursor" :host-pid 12345})
+              (sut/instance-slug #:instance{:app-id "vscode" :host-pid 12345})))
+    (is (= (sut/instance-slug #:instance{:app-id "cursor" :host-pid 12345})
+           (sut/instance-slug #:instance{:app-id "cursor" :host-pid 12345})))))
 
 (deftest slugged-server-name-test
   (testing "always includes generation suffix"

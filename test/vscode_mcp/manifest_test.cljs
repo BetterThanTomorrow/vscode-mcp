@@ -107,36 +107,46 @@
           "strips the folded scalar marker with CRLF line endings"))))
 
 (deftest build-server-instructions-test
-  (testing "returns nil for empty inputs"
-    (is (nil? (sut/build-server-instructions {})) "returns nil when no inputs provided"))
+  (testing "catalog pointer when inputs are empty"
+    (let [text (sut/build-server-instructions {})]
+      (is (string? text) "returns a string")
+      (is (string/includes? text "tools/list") "mentions tools/list")
+      (is (string/includes? text "resources/list") "mentions resources/list")
+      (is (string/includes? text "skill://index.json") "mentions skill://index.json")))
 
   (testing "handles only base text"
-    (is (= "Just base text" (sut/build-server-instructions {:base-text "Just base text"})) "returns base text alone"))
+    (let [text (sut/build-server-instructions {:base-text "Just base text"})]
+      (is (string/starts-with? text "Just base text") "preserves base text")
+      (is (string/includes? text "tools/list") "still includes the catalog pointer")))
 
   (testing "handles tools"
-    (let [tools [{:name "my-tool" :description "Tool description"}]]
-      (is (= "Available tools:\n- **`my-tool`**: Tool description"
-             (sut/build-server-instructions {:tools tools}))
-          "formats tools block correctly")))
+    (let [tools [{:name "my-tool" :description "Tool description"}]
+          text (sut/build-server-instructions {:tools tools})]
+      (is (string/includes? text "tools/list") "includes the catalog pointer")
+      (is (not (string/includes? text "Tool description")) "does not dump tool descriptions")
+      (is (not (string/includes? text "my-tool")) "does not dump tool names")))
 
   (testing "handles resources"
     (let [resources [{:name "my-skill"
                       :uri "skill://my-skill/SKILL.md"
-                      :description "Skill description"}]]
-      (is (= "Specialized skills are available as resources. Use `resources/list` and `resources/read` to load them — prefer the full skill URI (or read `skill://index.json` for discovery):\n- **my-skill** (`skill://my-skill/SKILL.md`): Skill description"
-             (sut/build-server-instructions {:resources resources}))
-          "formats resources block correctly")))
+                      :description "Skill description"}]
+          text (sut/build-server-instructions {:resources resources})]
+      (is (string/includes? text "resources/list") "includes the catalog pointer")
+      (is (string/includes? text "skill://index.json") "mentions the skills index")
+      (is (not (string/includes? text "Skill description")) "does not dump skill descriptions")))
 
   (testing "handles everything combined"
     (let [tools [{:name "my-tool" :description "Tool description"}]
           resources [{:name "my-skill"
                       :uri "skill://my-skill/SKILL.md"
-                      :description "Skill description"}]]
-      (is (= "Base text\n\nAvailable tools:\n- **`my-tool`**: Tool description\n\nSpecialized skills are available as resources. Use `resources/list` and `resources/read` to load them — prefer the full skill URI (or read `skill://index.json` for discovery):\n- **my-skill** (`skill://my-skill/SKILL.md`): Skill description"
-             (sut/build-server-instructions {:base-text "Base text"
-                                             :tools tools
-                                             :resources resources}))
-          "combines base-text, tools, and resources with double newlines"))))
+                      :description "Skill description"}]
+          text (sut/build-server-instructions {:base-text "Base text"
+                                               :tools tools
+                                               :resources resources})]
+      (is (string/starts-with? text "Base text") "preserves base text")
+      (is (string/includes? text "tools/list") "includes the catalog pointer")
+      (is (not (string/includes? text "Tool description")) "does not dump tool descriptions")
+      (is (not (string/includes? text "Skill description")) "does not dump skill descriptions"))))
 
 (deftest find-skill-resource-by-uri-test
   (let [resources [{:uri "skill://test-skill/SKILL.md" :name "test-skill"}]]
@@ -197,3 +207,21 @@
       (testing "returns nil for missing sibling"
         (is (nil? (sut/read-resource ctx "skill://test-skill/references/missing.md")))))
     (js/console.warn "Skipping read-resource-test: fixture not found")))
+
+(deftest get-tools-user-description-test
+  (let [ctx (mock-context #js [#js {:name "t"
+                                    :modelDescription "Model text"
+                                    :userDescription "User text"
+                                    :inputSchema #js {:type "object"
+                                                      :properties #js {}
+                                                      :required #js []}}])
+        default-tool (first (sut/get-tools ctx))
+        included-tool (first (sut/get-tools ctx {:includeUserDescription true}))]
+    (testing "default payload has no userDescription"
+      (is (= "t" (:name default-tool)))
+      (is (= "Model text" (:description default-tool)))
+      (is (not (contains? default-tool :userDescription))))
+    (testing "includeUserDescription adds userDescription"
+      (is (= "t" (:name included-tool)))
+      (is (= "Model text" (:description included-tool)))
+      (is (= "User text" (:userDescription included-tool))))))

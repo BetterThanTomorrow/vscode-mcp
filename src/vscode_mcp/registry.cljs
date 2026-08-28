@@ -1,5 +1,5 @@
 (ns vscode-mcp.registry
-  "Window-shard schema, paths, and atomic disk writes."
+  "Window-entry schema, paths, and atomic disk writes."
   (:require
    ["fs" :as fs]
    ["os" :as os]
@@ -9,19 +9,19 @@
 (def schema-version 1)
 
 (def core-keys
-  #{:schemaVersion :name :serverName :windowId
-    :workspaceRoot :hostname :pid :updatedAt :mcp})
+  #{:schemaVersion :name :serverName :windowId :appId
+    :workspaceRoot :workspaceFolder :hostname :pid :updatedAt :mcp})
 
 (def default-heartbeat-ms 30000)
 (def default-debounce-ms 1000)
 
-(defn shard-name
+(defn entry-name
   [server-name window-id]
   (str server-name "-" window-id))
 
-(defn shard-filename
+(defn entry-filename
   [server-name window-id]
-  (str (shard-name server-name window-id) ".json"))
+  (str (entry-name server-name window-id) ".json"))
 
 (defn default-dir
   []
@@ -31,9 +31,9 @@
   [config]
   (or (:registry/dir config) (default-dir)))
 
-(defn shard-path
+(defn entry-path
   [config server-name window-id]
-  (path/join (registry-dir config) (shard-filename server-name window-id)))
+  (path/join (registry-dir config) (entry-filename server-name window-id)))
 
 (defn now-iso
   []
@@ -73,15 +73,17 @@
                            (:cursor/script-relative-path config))))))
 
 (defn build-envelope
-  [{:keys [server-name window-id workspace-root hostname pid updated-at mcp]}]
+  [{:keys [server-name window-id app-id workspace-root workspace-folder hostname pid updated-at mcp]}]
   (cond-> {:schemaVersion schema-version
-           :name (shard-name server-name window-id)
+           :name (entry-name server-name window-id)
            :serverName server-name
            :windowId window-id
            :hostname hostname
            :pid pid
            :updatedAt updated-at}
+    app-id (assoc :appId app-id)
     workspace-root (assoc :workspaceRoot workspace-root)
+    workspace-folder (assoc :workspaceFolder workspace-folder)
     mcp (assoc :mcp mcp)))
 
 (defn merge-custom-data
@@ -96,7 +98,9 @@
   (let [envelope (build-envelope
                   {:server-name (:cursor/server-name config)
                    :window-id (:server/instance-slug server-info)
+                   :app-id (:server/app-id server-info)
                    :workspace-root (:server/workspace-root server-info)
+                   :workspace-folder (:server/workspace-folder server-info)
                    :hostname (current-hostname)
                    :pid (current-pid)
                    :updated-at (now-iso)
@@ -141,7 +145,7 @@
       nil)))
 
 (defn- tmp-pid
-  "Pid encoded in `<shard>.json.<pid>.<rand>.tmp`, or nil."
+  "Pid encoded in `<entry>.json.<pid>.<rand>.tmp`, or nil."
   [filename]
   (when-let [m (re-find #"\.(\d+)\.\d+\.tmp$" filename)]
     (js/parseInt (second m) 10)))
@@ -160,7 +164,7 @@
       (unlink-silent! file-path))))
 
 (defn sweep-dead-pid-files!
-  "Unlinks json shards and leftover tmp files whose pid is not running."
+  "Unlinks json entries and leftover tmp files whose pid is not running."
   [dir]
   (when (fs/existsSync dir)
     (doseq [filename (array-seq (fs/readdirSync dir))]
