@@ -207,3 +207,21 @@
       (testing "returns nil for missing sibling"
         (is (nil? (sut/read-resource ctx "skill://test-skill/references/missing.md")))))
     (js/console.warn "Skipping read-resource-test: fixture not found")))
+
+(deftest get-tools-user-description-test
+  (let [ctx (mock-context #js [#js {:name "t"
+                                    :modelDescription "Model text"
+                                    :userDescription "User text"
+                                    :inputSchema #js {:type "object"
+                                                      :properties #js {}
+                                                      :required #js []}}])
+        default-tool (first (sut/get-tools ctx))
+        included-tool (first (sut/get-tools ctx {:includeUserDescription true}))]
+    (testing "default payload has no userDescription"
+      (is (= "t" (:name default-tool)))
+      (is (= "Model text" (:description default-tool)))
+      (is (not (contains? default-tool :userDescription))))
+    (testing "includeUserDescription adds userDescription"
+      (is (= "t" (:name included-tool)))
+      (is (= "Model text" (:description included-tool)))
+      (is (= "User text" (:userDescription included-tool))))))

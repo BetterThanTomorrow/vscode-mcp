@@ -1,5 +1,5 @@
 (ns mcp
-  "Installed `bb mcp`: one JSON-RPC request to a live window socket."
+  "Installed `bb mcp`: one JSON-RPC request to a live window socket, or a `--readme` briefing."
   (:require
    [babashka.cli :as cli]
    [babashka.fs :as fs]
@@ -20,6 +20,9 @@
           :timeout {:coerce :long
                     :default 180
                     :desc "Seconds to wait for a JSON-RPC response (0 = no deadline)"}
+          :readme {:coerce :boolean
+                   :desc "First-job briefing (server, skills, tools)"}
+          :readme-tool {:desc "Inspect one tool by name (description + inputSchema)"}
           :help {:coerce :boolean
                  :alias :h
                  :desc "Print usage as an invalid-args envelope"}
@@ -35,7 +38,7 @@
 (defn- help-message
   []
   (str (cli/format-opts cli-opts)
-       "\n\nSee bb-mcp.md in this directory for verbs, flags, and examples."))
+       "\n\nFirst command: --readme. Then --readme-tool. See bb-mcp.md."))
 
 (defn- fail
   ([ctx code message]
@@ -50,21 +53,42 @@
   [ctx message]
   (fail ctx "invalid-args" message))
 
+(defn- readme-job
+  [opts]
+  (cond
+    (and (:readme opts) (contains? opts :readme-tool)) :conflict
+    (:readme opts) :readme
+    (contains? opts :readme-tool) :readme-tool
+    :else nil))
+
 (defn- verb-error
   [ctx]
-  (let [verb (:mcp/verb ctx)]
+  (let [verb (:mcp/verb ctx)
+        job (readme-job (:mcp/opts ctx))]
     (cond
-      (nil? verb) "Missing MCP method. See bb-mcp.md."
-      (seq (:mcp/extra-args ctx)) "Unexpected extra arguments. See bb-mcp.md."
-      (not (verbs verb)) (str "Unknown method: " verb))))
+      (and job verb)
+      "--readme / --readme-tool cannot be combined with a method verb. See bb-mcp.md."
+      (= :conflict job)
+      "--readme and --readme-tool are mutually exclusive. See bb-mcp.md."
+      (and (nil? job) (nil? verb))
+      "Missing MCP method. See bb-mcp.md."
+      (seq (:mcp/extra-args ctx))
+      "Unexpected extra arguments. See bb-mcp.md."
+      (and (nil? job) (not (verbs verb)))
+      (str "Unknown method: " verb))))
 
 (defn- flag-error
   [ctx]
   (let [opts (:mcp/opts ctx)
-        verb (:mcp/verb ctx)]
+        verb (:mcp/verb ctx)
+        job (readme-job opts)]
     (cond
       (not (and (:server-name opts) (:window-id opts)))
       "Required: --server-name and --window-id (copy from `bb list`)."
+      (and (= :readme-tool job)
+           (not (and (string? (:readme-tool opts))
+                     (not (string/blank? (:readme-tool opts))))))
+      "--readme-tool needs a tool name."
       (and (= "tools/call" verb) (not (:name opts)))
       "tools/call requires --name."
       (and (= "resources/read" verb) (not (:uri opts)))
@@ -408,17 +432,83 @@
     {:ok false :error err}
     {:ok true :result (:mcp/result ctx)}))
 
+(defn request-method!
+  "Sends one JSON-RPC method on the resolved shard. Returns ctx with `:mcp/result` or `:mcp/error`."
+  [ctx method params]
+  (-> ctx
+      (dissoc :mcp/error :mcp/exit :mcp/result :mcp/rpc-response)
+      (assoc :mcp/verb method
+             :mcp/rpc-request {:jsonrpc "2.0"
+                               :id 1
+                               :method method
+                               :params params})
+      exchange-rpc!
+      apply-rpc-result))
+
+(defn compose-readme-briefing
+  "Builds the `--readme` result from initialize, resources/list, and tools/list."
+  [init-result resources-result tools-result]
+  {:serverInfo (:serverInfo init-result)
+   :instructions (:instructions init-result)
+   :description (:description init-result)
+   :skills (mapv #(select-keys % [:name :uri :description])
+                 (:resources resources-result))
+   :tools (mapv #(select-keys % [:name :userDescription])
+                (:tools tools-result))
+   :next "Read relevant skills with `resources/read`. Inspect a tool with `bb mcp --readme-tool <name>`."})
+
+(defn- then-rpc
+  [ctx method params]
+  (if (:mcp/error ctx)
+    ctx
+    (request-method! ctx method params)))
+
+(defn run-readme!
+  "Runs initialize, resources/list, and tools/list (with userDescription) and composes one briefing."
+  [ctx]
+  (let [init (request-method! ctx "initialize" {:clientInfo {:name "bb-mcp"}})
+        resources (then-rpc init "resources/list" {})
+        tools (then-rpc resources "tools/list" {:includeUserDescription true})]
+    (if (:mcp/error tools)
+      tools
+      (assoc ctx :mcp/result (compose-readme-briefing
+                              (:mcp/result init)
+                              (:mcp/result resources)
+                              (:mcp/result tools))))))
+
+(defn pick-readme-tool
+  "Returns the `--readme-tool` result map, or nil when the name is missing."
+  [tools-result tool-name]
+  (when-let [tool (some #(when (= tool-name (:name %)) %) (:tools tools-result))]
+    (-> tool
+        (select-keys [:name :description :inputSchema])
+        (assoc :next "Call it with `bb mcp tools/call --name <name>`."))))
+
+(defn run-readme-tool!
+  "Lists tools and returns one tool's name, description, and inputSchema."
+  [ctx]
+  (let [listed (request-method! ctx "tools/list" {})
+        tool-name (get-in ctx [:mcp/opts :readme-tool])]
+    (if (:mcp/error listed)
+      listed
+      (if-let [picked (pick-readme-tool (:mcp/result listed) tool-name)]
+        (assoc ctx :mcp/result picked)
+        (fail ctx "unknown-tool" (str "Unknown tool: " tool-name))))))
+
 (defn run-pipeline
   "Runs parse through media rewrite. Bind a ctx map and replay from any step."
   [ctx]
-  (-> ctx
-      parse-cli
-      gather-stdin
-      resolve-window
-      build-rpc
-      exchange-rpc!
-      apply-rpc-result
-      rewrite-media-parts))
+  (let [prepared (-> ctx parse-cli gather-stdin resolve-window)]
+    (if (:mcp/error prepared)
+      prepared
+      (case (readme-job (:mcp/opts prepared))
+        :readme (run-readme! prepared)
+        :readme-tool (run-readme-tool! prepared)
+        (-> prepared
+            build-rpc
+            exchange-rpc!
+            apply-rpc-result
+            rewrite-media-parts)))))
 
 (defn main!
   "Prints one JSON envelope on stdout and returns 0 or 1. Require-safe: no `System/exit`."

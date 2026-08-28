@@ -231,3 +231,71 @@
       (is (false? (:ok parsed)))
       (is (= "protocol-error" (get-in parsed [:error :code])))
       (is (= "boom" (get-in parsed [:error :message]))))))
+
+(deftest parse-cli-readme-flags
+  (let [ok (parse "--readme" "--server-name" "bd" "--window-id" "ws-1")]
+    (is (nil? (:mcp/error ok)))
+    (is (nil? (:mcp/verb ok)))
+    (is (true? (get-in ok [:mcp/opts :readme]))))
+  (let [tool (parse "--readme-tool" "clojure_evaluate_code" "--server-name" "bd" "--window-id" "ws-1")]
+    (is (nil? (:mcp/error tool)))
+    (is (= "clojure_evaluate_code" (get-in tool [:mcp/opts :readme-tool]))))
+  (is (= "invalid-args" (err-code (parse "--readme"))))
+  (is (= "invalid-args" (err-code (parse "--readme-tool" "t"))))
+  (is (= "invalid-args" (err-code (parse "--readme" "ping" "--server-name" "bd" "--window-id" "ws-1"))))
+  (is (= "invalid-args" (err-code (parse "ping" "--readme" "--server-name" "bd" "--window-id" "ws-1"))))
+  (is (= "invalid-args" (err-code (parse "--readme" "--readme-tool" "t" "--server-name" "bd" "--window-id" "ws-1"))))
+  (is (= "invalid-args" (err-code (parse "--readme-tool" "--server-name" "bd" "--window-id" "ws-1"))))
+  (let [init (parse "initialize" "--server-name" "bd" "--window-id" "ws-1")]
+    (is (nil? (:mcp/error init)))
+    (is (= "initialize" (:mcp/verb init)))))
+
+(deftest parse-cli-help-readme-recipe
+  (let [msg (get-in (parse "--help") [:mcp/error :message])]
+    (is (re-find #"--readme" msg))
+    (is (re-find #"--readme-tool" msg))
+    (is (not (re-find #"initialize" msg)))))
+
+(deftest compose-readme-briefing-shape
+  (let [briefing (mcp/compose-readme-briefing
+                  {:serverInfo {:name "bd" :version "1"}
+                   :instructions "Use the tools."
+                   :description "A server"}
+                  {:resources [{:name "sk"
+                                :uri "skill://sk/SKILL.md"
+                                :description "A skill"
+                                :mimeType "text/markdown"
+                                :text "BODY"}]}
+                  {:tools [{:name "t"
+                            :description "Model"
+                            :userDescription "User"
+                            :inputSchema {:type "object"}}]})]
+    (is (= {:name "bd" :version "1"} (:serverInfo briefing)))
+    (is (= "Use the tools." (:instructions briefing)))
+    (is (= "A server" (:description briefing)))
+    (is (= [{:name "sk" :uri "skill://sk/SKILL.md" :description "A skill"}]
+           (:skills briefing)))
+    (is (= [{:name "t" :userDescription "User"}] (:tools briefing)))
+    (is (re-find #"resources/read" (:next briefing)))
+    (is (re-find #"--readme-tool" (:next briefing)))
+    (is (not (re-find #"BODY" (pr-str briefing))))
+    (is (not (contains? (first (:tools briefing)) :inputSchema)))))
+
+(deftest pick-readme-tool-known-and-unknown
+  (let [listed {:tools [{:name "t"
+                         :description "Model"
+                         :inputSchema {:type "object"}
+                         :userDescription "User"}]}
+        picked (mcp/pick-readme-tool listed "t")]
+    (is (= "t" (:name picked)))
+    (is (= "Model" (:description picked)))
+    (is (= {:type "object"} (:inputSchema picked)))
+    (is (re-find #"tools/call" (:next picked)))
+    (is (not (contains? picked :userDescription)))
+    (is (nil? (mcp/pick-readme-tool listed "nope")))))
+
+(deftest run-readme-tool-unknown-without-tcp
+  (with-redefs [mcp/request-method! (fn [ctx _method _params]
+                                      (assoc ctx :mcp/result {:tools [{:name "t"}]}))]
+    (is (= "unknown-tool"
+           (err-code (mcp/run-readme-tool! {:mcp/opts {:readme-tool "nope"}}))))))

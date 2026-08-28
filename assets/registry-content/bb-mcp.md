@@ -2,17 +2,29 @@
 
 An MCP client of sort. Use when a harness MCP connector can't reach the VS Code machine.
 
-From the registry home directory run one MCP method against a live window and parse one JSON object on stdout. Copy `serverName` and `windowId` from `bb list`. (For discovery, the list header also shows `appId` and the hashed location.)
+From the registry home directory run one command against a live window and parse one JSON object on stdout. Copy `serverName` and `windowId` from `bb list`. (For discovery, the list header also shows `appId` and the hashed location.)
+
+First command is `--readme`. Then `--readme-tool` for one tool. Then work verbs: `resources/read`, `tools/call`.
 
 ```sh
-bb mcp initialize --server-name calva-backseat-driver --window-id <windowId>
+bb mcp --readme --server-name calva-backseat-driver --window-id <windowId>
+bb mcp --readme-tool clojure_evaluate_code --server-name calva-backseat-driver --window-id <windowId>
+```
+
+`--readme` and `--readme-tool` are flags on `bb mcp`. They cannot be combined with each other or with a method verb. `--server-name` / `--window-id` are still required.
+
+`--readme` briefs the server in one `result`: `serverInfo`, `instructions`, `description`, published skills (name, URI, description — not bodies), and tools as `name` + `userDescription`. Then read relevant skills with `resources/read`, and inspect a tool with `--readme-tool`.
+
+`--readme-tool` result is `name`, `description`, `inputSchema`. Unknown name is `unknown-tool`. Next is `tools/call`.
+
+Bare verbs stay MCP methods: `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`, `ping`.
+
+```sh
 bb mcp tools/list --server-name calva-backseat-driver --window-id <windowId>
-bb mcp resources/list --server-name calva-backseat-driver --window-id <windowId> # pay attention to the skills provided here
+bb mcp resources/list --server-name calva-backseat-driver --window-id <windowId>
 bb mcp resources/templates/list --server-name calva-backseat-driver --window-id <windowId>
 bb mcp ping --server-name calva-backseat-driver --window-id <windowId>
 ```
-
-`initialize` is how you learn the server (`serverInfo`, `instructions`, `description`). Tool catalogs are `tools/list`. Skills are `resources/list` and `skill://index.json` (read with `resources/read`).
 
 ## Tools and resources
 
@@ -43,6 +55,8 @@ bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId>
 | --- | --- | --- |
 | `--server-name` | all | Shard `serverName` |
 | `--window-id` | all | Shard `windowId` |
+| `--readme` | first job | Server briefing (skills + tool names) |
+| `--readme-tool` | first job | One tool's `name`, `description`, `inputSchema` |
 | `--name` | `tools/call` | Tool name |
 | `--uri` | `resources/read` | Resource URI |
 | `--args -` | `tools/call` | JSON object on stdin. Omit `--args` to send `{}`. |
@@ -50,7 +64,7 @@ bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId>
 
 Connect has its own 5 second budget. Connect failure is `window-gone`, not `timeout`.
 
-`--help` / `-h` prints the same failure envelope as other flag errors (`invalid-args`, exit 1), with usage in `error.message`.
+`--help` / `-h` prints the same failure envelope as other flag errors (`invalid-args`, exit 1), with usage in `error.message`. First command in that usage is `--readme`.
 
 ## Envelope
 
@@ -60,7 +74,7 @@ Success:
 {"ok": true, "result": …}
 ```
 
-`result` is what that MCP method returned. A completed `tools/call` whose text is an error, or that sets `isError`, is still `ok: true` — read `result`.
+`result` is that command's payload. For a bare verb, it is what that MCP method returned. For `--readme` / `--readme-tool`, it is the briefing above. A completed `tools/call` whose text is an error, or that sets `isError`, is still `ok: true` — read `result`.
 
 Failure (nonzero exit):
 
@@ -70,10 +84,10 @@ Failure (nonzero exit):
 
 | `code` | When |
 | --- | --- |
-| `invalid-args` | Missing/unknown method, missing flags, `--args -` without a JSON object on stdin |
+| `invalid-args` | Missing/unknown method, missing flags, `--readme` combined with a verb or `--readme-tool`, `--args -` without a JSON object on stdin |
 | `unknown-id` | No shard with that `serverName` + `windowId` |
 | `window-gone` | Shard exists but is not live, has no MCP address, or TCP connect fails |
-| `unknown-tool` | JSON-RPC `-32601` on `tools/call` |
+| `unknown-tool` | `--readme-tool` name not in `tools/list`, or JSON-RPC `-32601` on `tools/call` |
 | `unknown-resource` | JSON-RPC `-32602` on `resources/read` |
 | `timeout` | `--timeout` exceeded and no complete JSON line arrived |
 | `protocol-error` | Malformed JSON from the socket, parse error, or other unmatched RPC failure |

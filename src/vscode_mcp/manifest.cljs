@@ -83,11 +83,21 @@
       {:description (:description parsed)
        :name (:name parsed)})))
 
+(defn- tool-list-entry
+  [tool include-user-description?]
+  (let [schema (js->clj (oget tool "inputSchema") :keywordize-keys true)
+        entry {:name (oget tool "name")
+               :description (oget tool "modelDescription")
+               :inputSchema (select-keys schema [:type :properties :required])}]
+    (cond-> entry
+      include-user-description? (assoc :userDescription (oget tool "userDescription")))))
+
 (defn get-tools
   "Reads `contributes.languageModelTools` from the extension's package.json
    and returns them in the format expected by MCP `tools/list`.
-   `settings` is an optional map of {when-clause boolean} to filter tools."
-  [context & [{:keys [settings] :or {settings {}}}]]
+   `settings` is an optional map of {when-clause boolean} to filter tools.
+   `includeUserDescription` adds each tool's package.json `userDescription`."
+  [context & [{:keys [settings includeUserDescription] :or {settings {}}}]]
   (try
     (let [tools (manifest-tools context)]
       (if-not tools
@@ -95,11 +105,7 @@
         (->> tools
              (filter (fn [tool]
                        (satisfies-when? (oget tool "when") settings)))
-             (map (fn [tool]
-                    (let [schema (js->clj (oget tool "inputSchema") :keywordize-keys true)]
-                      {:name (oget tool "name")
-                       :description (oget tool "modelDescription")
-                       :inputSchema (select-keys schema [:type :properties :required])})))
+             (map #(tool-list-entry % includeUserDescription))
              vec)))
     (catch js/Error e
       (js/console.error "[MCP Manifest] Error getting tools:" (.-message e))

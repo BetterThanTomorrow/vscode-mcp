@@ -8,7 +8,7 @@ The library:
 2. Bundles a Node.js `stdio` wrapper that MCP clients spawn; the wrapper relays stdin/stdout to the socket.
 3. Reads your existing Copilot manifest and exposes it as MCP tools and resources.
 4. Auto-registers with Cursor via [`vscode.cursor.mcp.registerServer`](https://cursor.com/docs/extension-api).
-5. Optionally keeps a **window registry** at `~/.config/vscode-mcp/registry`: one entry per editor window, with discovery and attach information. Point an agent at that directory and ask it to connect. `bb list` discovers windows; `bb mcp` is the no-session attach path when the agent cannot hold MCP. Feature doc: [docs/registry.md](docs/registry.md).
+5. Optionally keeps a **window registry** at `~/.config/vscode-mcp/registry`: one entry per editor window, with discovery and attach information. Point an agent at that directory and ask it to connect. `bb list` discovers windows; `bb mcp` is the no-session attach path when the agent cannot hold MCP (`--readme` first, then `--readme-tool`). Feature doc: [docs/registry.md](docs/registry.md).
 
 If your extension does not declare Copilot tools and skills, this library is not for you.
 

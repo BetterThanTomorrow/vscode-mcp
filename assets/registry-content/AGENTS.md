@@ -27,4 +27,4 @@ After attach, query MCP for live details. Shard session and runtime fields can l
 
 ## If you cannot hold an MCP session
 
-Read `bb-mcp.md` and use `bb mcp` for one request at a time. Copy `serverName` and `windowId` from `bb list`.
+Read `bb-mcp.md` and use `bb mcp`. First command is `--readme`. Copy `serverName` and `windowId` from `bb list`.

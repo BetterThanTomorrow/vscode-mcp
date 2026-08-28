@@ -131,7 +131,9 @@ Use the list to pick the relevant server. The listing contains `appId` (editor C
 
 Then attach: `node <wrapperPath> <portFilePath> <host>`, or write the client's MCP config from those fields. After attach, query MCP for live details. Shard discovery can lag; MCP is current.
 
-If the agent cannot hold a normal MCP session, `bb mcp` is the no-session path: one JSON-RPC request to the window socket, one JSON envelope on stdout. Recipe: installed `bb-mcp.md`. Copy `serverName` and `windowId` from `bb list`.
+If the agent cannot hold a normal MCP session, `bb mcp` is the no-session path: one JSON envelope on stdout. First command is `--readme` (server briefing); then `--readme-tool <name>`; then `resources/read` / `tools/call`. Recipe: installed `bb-mcp.md`. Copy `serverName` and `windowId` from `bb list`.
+
+Stock MCP `tools/list` stays `name` / `description` (`modelDescription`) / `inputSchema`. An optional request arg `includeUserDescription` adds `userDescription` from package.json `languageModelTools`. Only `bb mcp --readme` sends that arg.
 
 `watch-registry` (`bb watch-registry` in this repo) is a development event stream over the same shards. It stays in the vscode-mcp repo.
 
@@ -146,7 +148,7 @@ The installed `AGENTS.md` is the attach recipe. It says:
 5. Use the list to pick the relevant server. The listing contains `appId`, `workspaceRoot`, and other, provider-dependent information needed for discovery and connect.
 6. Attach from `mcp`, or write client config from the same fields.
 7. Query MCP for live details.
-8. If you cannot hold a session, read `bb-mcp.md` and use `bb mcp`.
+8. If you cannot hold a session, read `bb-mcp.md` and use `bb mcp`. First command is `--readme`.
 
 Pez authors `README.md`. Pez authors `AGENTS.md` to match this recipe.
 

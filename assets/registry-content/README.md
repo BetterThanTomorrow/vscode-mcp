@@ -7,7 +7,7 @@ The **registry home** is `~/.config/vscode-mcp/registry`, consisting of:
 * This README.md
 * [AGENTS.md](AGENTS.md)
 * A [Babashka](https://babashka.org) task, `bb list`, for listing the registry. It will list the information needed for discovering MCP servers and for attaching them.
-* `bb mcp` (see [bb-mcp.md](bb-mcp.md)), an MCP client of sort. Each invokation is an MCP request. Use when an MCP client can't be setup (e.g. the connector can't reach the machine running VS Code).
+* `bb mcp` (see [bb-mcp.md](bb-mcp.md)), an MCP client of sort. Use when an MCP client can't be setup (e.g. the connector can't reach the machine running VS Code). Start with `--readme`.
 
 The easiest way to use the registry is probably to point your AI agent to the **registry home** and ask it to connect itself (or, if it can't do that fully, to create the necessary configuration so that you can connect the agent).
 

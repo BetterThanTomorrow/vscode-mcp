@@ -91,6 +91,8 @@ Implement `:mcp/on-request` with local `tools/call`; delegate everything else to
 
 `handle-manifest-request` covers `initialize`, `tools/list`, `resources/list`, `resources/read` (static skills), `resources/templates/list`, and `ping`.
 
+Stock `tools/list` is `name` / `description` (`modelDescription`) / `inputSchema`. Pass `includeUserDescription: true` in the request params to add `userDescription` from package.json. Default (missing/false) is today's shape. `bb mcp --readme` is the client that sends that arg.
+
 Pass `:settings` when tools/skills use `when` clauses in `package.json` (literal string match only — see Limitations).
 
 ### Lifecycle
@@ -120,7 +122,7 @@ Inert until the consumer passes `:registry/enabled? true`. On start the library 
 
 `:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the shard; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
 
-On first `on-started!+` in the Extension Host process, the library also installs registry-home support files (`README.md`, `AGENTS.md`, `bb-mcp.md`, `bb.edn`, `scripts/list_registry.clj`, `scripts/mcp.clj`) fire-and-forget from a debug sibling checkout or GitHub `master`. Grow `consumer-files` only after those paths exist; add the listing `mcp` task in the same batch as `scripts/mcp.clj`. Media sweep is hooked from `registry-writer` (`vscode-mcp.mcp-media`), not from `core/start-flow!+`. No extra `create-config` key. Details: [docs/registry.md](docs/registry.md).
+On first `on-started!+` in the Extension Host process, the library also installs registry-home support files (`README.md`, `AGENTS.md`, `bb-mcp.md`, `bb.edn`, `scripts/list_registry.clj`, `scripts/mcp.clj`) fire-and-forget from a debug sibling checkout or GitHub `master`. Grow `consumer-files` only after those paths exist; add the listing `mcp` task in the same batch as `scripts/mcp.clj`. Installed `bb-mcp.md` starts agents on `--readme` / `--readme-tool`. Media sweep is hooked from `registry-writer` (`vscode-mcp.mcp-media`), not from `core/start-flow!+`. No extra `create-config` key. Details: [docs/registry.md](docs/registry.md).
 
 ## Skill resources (SEP-2640 subset)
 
