@@ -5,11 +5,12 @@
    [babashka.fs :as fs]
    [cheshire.core :as json]
    [clojure.string :as string]
-   [list-registry :as listing])
+   [list-registry :as listing]
+   [mcp-briefing :as briefing])
   (:import
-   [java.io BufferedReader InputStreamReader]
-   [java.net InetSocketAddress Socket]
-   [java.util Base64]))
+    [java.io BufferedReader InputStreamReader]
+    [java.net InetSocketAddress Socket]
+    [java.util Base64]))
 
 (def cli-opts
   {:spec {:server-name {:desc "Shard serverName from `bb list`"}
@@ -77,6 +78,12 @@
       (and (nil? job) (not (verbs verb)))
       (str "Unknown method: " verb))))
 
+(defn- missing-readme-tool-name?
+  [opts job]
+  (and (= :readme-tool job)
+       (or (not (string? (:readme-tool opts)))
+           (string/blank? (:readme-tool opts)))))
+
 (defn- flag-error
   [ctx]
   (let [opts (:mcp/opts ctx)
@@ -85,9 +92,7 @@
     (cond
       (not (and (:server-name opts) (:window-id opts)))
       "Required: --server-name and --window-id (copy from `bb list`)."
-      (and (= :readme-tool job)
-           (not (and (string? (:readme-tool opts))
-                     (not (string/blank? (:readme-tool opts))))))
+      (missing-readme-tool-name? opts job)
       "--readme-tool needs a tool name."
       (and (= "tools/call" verb) (not (:name opts)))
       "tools/call requires --name."
@@ -448,52 +453,22 @@
 (defn compose-readme-briefing
   "Builds the `--readme` result from initialize, resources/list, and tools/list."
   [init-result resources-result tools-result]
-  {:serverInfo (:serverInfo init-result)
-   :instructions (:instructions init-result)
-   :description (:description init-result)
-   :skills (mapv #(select-keys % [:name :uri :description])
-                 (:resources resources-result))
-   :tools (mapv #(select-keys % [:name :userDescription])
-                (:tools tools-result))
-   :next "Read relevant skills with `resources/read`. Inspect a tool with `bb mcp --readme-tool <name>`."})
-
-(defn- then-rpc
-  [ctx method params]
-  (if (:mcp/error ctx)
-    ctx
-    (request-method! ctx method params)))
+  (briefing/compose-readme-briefing init-result resources-result tools-result))
 
 (defn run-readme!
   "Runs initialize, resources/list, and tools/list (with userDescription) and composes one briefing."
   [ctx]
-  (let [init (request-method! ctx "initialize" {:clientInfo {:name "bb-mcp"}})
-        resources (then-rpc init "resources/list" {})
-        tools (then-rpc resources "tools/list" {:includeUserDescription true})]
-    (if (:mcp/error tools)
-      tools
-      (assoc ctx :mcp/result (compose-readme-briefing
-                              (:mcp/result init)
-                              (:mcp/result resources)
-                              (:mcp/result tools))))))
+  (briefing/run-readme! ctx request-method!))
 
 (defn pick-readme-tool
   "Returns the `--readme-tool` result map, or nil when the name is missing."
   [tools-result tool-name]
-  (when-let [tool (some #(when (= tool-name (:name %)) %) (:tools tools-result))]
-    (-> tool
-        (select-keys [:name :description :inputSchema])
-        (assoc :next "Call it with `bb mcp tools/call --name <name>`."))))
+  (briefing/pick-readme-tool tools-result tool-name))
 
 (defn run-readme-tool!
   "Lists tools and returns one tool's name, description, and inputSchema."
   [ctx]
-  (let [listed (request-method! ctx "tools/list" {})
-        tool-name (get-in ctx [:mcp/opts :readme-tool])]
-    (if (:mcp/error listed)
-      listed
-      (if-let [picked (pick-readme-tool (:mcp/result listed) tool-name)]
-        (assoc ctx :mcp/result picked)
-        (fail ctx "unknown-tool" (str "Unknown tool: " tool-name))))))
+  (briefing/run-readme-tool! ctx request-method! fail))
 
 (defn run-pipeline
   "Runs parse through media rewrite. Bind a ctx map and replay from any step."

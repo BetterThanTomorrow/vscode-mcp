@@ -8,7 +8,7 @@
    [vscode-mcp.registry-listing-stubs :as stubs]))
 
 (def consumer-files
-  ["README.md" "AGENTS.md" "bb-mcp.md" "bb.edn" "scripts/list_registry.clj" "scripts/mcp.clj"])
+  ["README.md" "AGENTS.md" "bb-mcp.md" "bb.edn" "scripts/list_registry.clj" "scripts/mcp.clj" "scripts/mcp_briefing.clj"])
 
 (def github-base
   "https://raw.githubusercontent.com/BetterThanTomorrow/vscode-mcp/master/assets/registry-content/")

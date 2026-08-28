@@ -20,6 +20,7 @@ Registry home is a package. vscode-mcp owns the tree and overwrites files there.
   bb.edn                              `bb list` and `bb mcp` (`:paths ["scripts"]`)
   scripts/list_registry.clj
   scripts/mcp.clj
+  scripts/mcp_briefing.clj
   windows/*.json                      one shard per window
 
 ~/.config/vscode-mcp/mcp-media/       sibling of registry home
@@ -164,6 +165,7 @@ assets/registry-content/
   bb.edn
   scripts/list_registry.clj
   scripts/mcp.clj
+  scripts/mcp_briefing.clj
   fallback/README.md          embed-only; not installed as a directory
   fallback/AGENTS.md
 ```
@@ -173,9 +175,9 @@ No extra `create-config` key. Requires `:registry/enabled?`. Hook: first `regist
 Source order:
 
 1. Debug (`goog.DEBUG`): `{extensionPath}/../vscode-mcp/assets/registry-content/` when that directory exists (sibling checkout).
-2. Else GitHub raw, branch `master`: the six consumer files from `https://raw.githubusercontent.com/BetterThanTomorrow/vscode-mcp/master/assets/registry-content/`.
+2. Else GitHub raw, branch `master`: the seven consumer files from `https://raw.githubusercontent.com/BetterThanTomorrow/vscode-mcp/master/assets/registry-content/`.
 
-The full listing tree is not shipped in the VSIX. Debug sibling install copies only the six consumer files, not `fallback/`. Write when bytes differ. Grow `consumer-files` only after the new files exist; add the `mcp` task in the same batch as `scripts/mcp.clj`.
+The full listing tree is not shipped in the VSIX. Debug sibling install copies only the seven consumer files, not `fallback/`. Write when bytes differ. Grow `consumer-files` only after the new files exist; add the `mcp` task in the same batch as `scripts/mcp.clj`.
 
 A process-local flag records a **successful** fetch for this session. Stop/start MCP in the same window does not fetch again after success.
 

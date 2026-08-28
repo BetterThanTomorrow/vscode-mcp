@@ -299,3 +299,32 @@
                                       (assoc ctx :mcp/result {:tools [{:name "t"}]}))]
     (is (= "unknown-tool"
            (err-code (mcp/run-readme-tool! {:mcp/opts {:readme-tool "nope"}}))))))
+
+(deftest run-readme-rpc-sequence
+  (let [calls (atom [])
+        init-result {:serverInfo {:name "bd"}
+                     :instructions "i"
+                     :description "d"}
+        resources-result {:resources [{:name "sk"
+                                       :uri "skill://sk/SKILL.md"
+                                       :description "A skill"}]}
+        tools-result {:tools [{:name "t"
+                               :userDescription "User"
+                               :description "Model"
+                               :inputSchema {:type "object"}}]}]
+    (with-redefs [mcp/request-method!
+                  (fn [ctx method params]
+                    (swap! calls conj {:method method :params params})
+                    (assoc ctx :mcp/result
+                           (case method
+                             "initialize" init-result
+                             "resources/list" resources-result
+                             "tools/list" tools-result)))]
+      (let [out (mcp/run-readme! {:mcp/opts {}})]
+        (is (= [{:method "initialize" :params {:clientInfo {:name "bb-mcp"}}}
+                {:method "resources/list" :params {}}
+                {:method "tools/list" :params {:includeUserDescription true}}]
+               @calls))
+        (is (= [{:name "t" :userDescription "User"}]
+               (:tools (:mcp/result out))))
+        (is (nil? (:mcp/error out)))))))

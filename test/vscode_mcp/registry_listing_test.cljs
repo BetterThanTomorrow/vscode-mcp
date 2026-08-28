@@ -34,6 +34,7 @@
     (fs/writeFileSync (path/join dir "bb.edn") "{:paths [\"scripts\"]}\n")
     (fs/writeFileSync (path/join scripts "list_registry.clj") "(ns list-registry)\n")
     (fs/writeFileSync (path/join scripts "mcp.clj") "(ns mcp)\n")
+    (fs/writeFileSync (path/join scripts "mcp_briefing.clj") "(ns mcp-briefing)\n")
     (fs/writeFileSync (path/join fallback "README.md") "must-not-copy\n")
     dir))
 
@@ -43,7 +44,8 @@
    ["bb-mcp.md" "github-bb-mcp\n"]
    ["bb.edn" "{:paths [\"scripts\"]}\n"]
    ["scripts/list_registry.clj" "(ns list-registry)\n"]
-   ["scripts/mcp.clj" "(ns mcp)\n"]])
+   ["scripts/mcp.clj" "(ns mcp)\n"]
+   ["scripts/mcp_briefing.clj" "(ns mcp-briefing)\n"]])
 
 (defn- install-with-fetch!+
   [root fetch-fn]
