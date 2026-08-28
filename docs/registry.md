@@ -54,7 +54,7 @@ Backseat Driver opts in and puts compact REPL sessions on the shard. Joyride can
 
 Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-ws-1a2b3c.json`).
 
-`windowId` is `vscode-mcp.cursor-config/instance-slug`: `ws-<hash>` with a workspace folder, `win-<hash>` without.
+`windowId` is `vscode-mcp.cursor-config/instance-slug`: `ws-<hash>` of the editor `uriScheme` plus the `.code-workspace` file, or the first folder path if there is no workspace file. Empty windows use `win-<hash>` of `uriScheme` plus the Extension Host pid, so extensions in that window share a slug.
 
 `:cursor/server-name` is the consumer’s package.json `name` (Backseat Driver: `calva-backseat-driver`). That string is also Cursor’s register base, the ECA config key, the shard filename prefix, and the media-dir prefix. Cursor names are generation-suffixed (`<base>-<slug>-gN`). After a rename, an untracked old `backseat-driver-…-gN` entry can remain in workspaceState for the human to remove.
 

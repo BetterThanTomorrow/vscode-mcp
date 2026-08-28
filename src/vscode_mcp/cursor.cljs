@@ -19,7 +19,9 @@
 (defn current-instance-slug
   [_]
   (config/instance-slug
-   #:instance{:workspace-root-path (current-workspace-root)}))
+   #:instance{:app-id (.-uriScheme vscode/env)
+              :workspace-file-path (some-> ^js vscode/workspace.workspaceFile .-fsPath)
+              :workspace-root-path (current-workspace-root)}))
 
 (def ^:private registered-names-key "vscode-mcp.cursor/registered-names")
 
