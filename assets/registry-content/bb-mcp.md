@@ -54,8 +54,8 @@ bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId>
 
 | Flag | Used by | Meaning |
 | --- | --- | --- |
-| `--server-name` | all | Shard `serverName` |
-| `--window-id` | all | Shard `windowId` |
+| `--server-name` | all | `serverName` from `bb list` |
+| `--window-id` | all | `windowId` from `bb list` |
 | `--readme` | first job | Server briefing (skills + tool names) |
 | `--readme-tool` | first job | One tool's `name`, `description`, `inputSchema` |
 | `--name` | `tools/call` | Tool name |
@@ -89,8 +89,8 @@ Failure (nonzero exit):
 | `code` | When |
 | --- | --- |
 | `invalid-args` | Missing/unknown method, missing flags, `--readme` combined with a verb or `--readme-tool`, `--args -` without a JSON object on stdin |
-| `unknown-id` | No shard with that `serverName` + `windowId` |
-| `window-gone` | Shard exists but is not live, has no MCP address, or TCP connect fails |
+| `unknown-id` | No listing with that `serverName` + `windowId` |
+| `window-gone` | Listing exists but is not live, has no MCP address, or TCP connect fails |
 | `unknown-tool` | `--readme-tool` name not in `tools/list`, or JSON-RPC `-32601` on `tools/call` |
 | `unknown-resource` | JSON-RPC `-32602` on `resources/read` |
 | `timeout` | `--timeout` exceeded and no complete JSON line arrived |

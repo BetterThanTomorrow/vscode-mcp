@@ -16,7 +16,7 @@ Ask yourself: Will this and the tests work on Windows too?
 
 **Responsibility split**
 
-- **Library:** start/stop socket, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window-shard registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
+- **Library:** start/stop socket, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
 - **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, workspace-stable ECA port file, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
 
 Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those live in the consumer repos.
@@ -44,7 +44,7 @@ Ship order for library features that need consumer wiring: **library first** (in
 
 **ECA default:** library `:mcp/auto-register-eca?` defaults to **`false`** so a bare SHA bump stays inert. User-facing default `true` lives in the consumer’s `package.json` setting, wired into `create-config`.
 
-**Registry default:** `:registry/enabled?` defaults to **`false`**. Consumers that want window shards pass `true` and supply `:registry/custom-data+`.
+**Registry default:** `:registry/enabled?` defaults to **`false`**. Consumers that want window entries pass `true` and supply `:registry/custom-data+`.
 
 ## Development in this repo
 
@@ -70,7 +70,7 @@ No Extension Host here. Integration proof is in consumer Extension Hosts and the
 | `vscode-mcp.policy` | Start/register/reload predicates |
 | `vscode-mcp.wrapper-install` | Symlink (DEBUG) / copy (release) into `:lifecycle/wrapper-install-dir` |
 | `vscode-mcp.server-readiness` | TCP probe before Cursor registration |
-| `vscode-mcp.registry` | Shard schema, paths, atomic writes, dead-pid sweep |
+| `vscode-mcp.registry` | Entry schema, paths, atomic writes, dead-pid sweep |
 | `vscode-mcp.registry-writer` | Process-local writer: heartbeat, debounce, generation fencing |
 
 ## Consumer wiring (contract)
@@ -106,7 +106,7 @@ Pass `:settings` when tools/skills use `when` clauses in `package.json` (literal
 | `running?` / `server-info` / `cursor-registered?` | Query state |
 | `maybe-start!+` | Start when policy allows |
 | `start!+` | Always start (+ manual-setup dialog when not silent) |
-| `stop!+` | Unregister Cursor (best-effort), stop socket, unlink registry shard |
+| `stop!+` | Unregister Cursor (best-effort), stop socket, unlink the registry file |
 | `register-with-cursor!+` | Start if needed, then register |
 | `update-registry!+` | Debounced refresh of `:registry/custom-data+` using live server-info |
 
@@ -114,13 +114,13 @@ Required: `:lifecycle/wrapper-install-dir`. On every start the library installs 
 
 Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}`.
 
-### Window shard registry
+### Window registry
 
 Feature doc: [docs/registry.md](docs/registry.md).
 
-Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, and heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`). `stop!+` fences in-flight writes and unlinks the shard.
+Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, and heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`). `stop!+` fences in-flight writes and unlinks the registry file.
 
-`:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the shard; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
+`:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the entry; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
 
 On first `on-started!+` in the Extension Host process, the library also installs registry-home support files (`README.md`, `AGENTS.md`, `bb-mcp.md`, `bb.edn`, `scripts/list_registry.clj`, `scripts/mcp.clj`, `scripts/mcp_briefing.clj`) fire-and-forget from a debug sibling checkout or GitHub `master`. Grow `consumer-files` only after those paths exist; add the listing `mcp` task in the same batch as `scripts/mcp.clj`. Installed `bb-mcp.md` starts agents on `--readme` / `--readme-tool`. Media sweep is hooked from `registry-writer` (`vscode-mcp.mcp-media`), not from `core/start-flow!+`. No extra `create-config` key. Details: [docs/registry.md](docs/registry.md).
 

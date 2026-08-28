@@ -61,7 +61,7 @@
   (when-let [entry (current-entry key generation)]
     (let [config (:config entry)
           info (:server-info entry)
-          dest (registry/shard-path config
+          dest (registry/entry-path config
                                     (:cursor/server-name config)
                                     (:server/instance-slug info))]
       (registry/atomic-write! dest payload)
@@ -113,7 +113,7 @@
       (swap! !writers assoc-in [key :debounce-timer] timer))))
 
 (defn on-started!+
-  "Sweeps dead shards, starts the heartbeat, and writes the initial shard."
+  "Sweeps dead entries, starts the heartbeat, and writes the initial entry."
   [config server-info]
   (if-not (and (:registry/enabled? config)
                (:cursor/server-name config)
@@ -147,12 +147,12 @@
       (swap! !writers dissoc key))))
 
 (defn on-stopped!
-  "Unlinks the shard for `server-info`'s window."
+  "Unlinks the entry for `server-info`'s window."
   [config server-info]
   (when (and (:cursor/server-name config)
              (:server/instance-slug server-info))
     (registry/unlink-silent!
-     (registry/shard-path config
+     (registry/entry-path config
                           (:cursor/server-name config)
                           (:server/instance-slug server-info)))))
 

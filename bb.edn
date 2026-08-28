@@ -29,5 +29,5 @@
           (cli/parse-opts *command-line-args* vendor-jsonc-parser/cli-spec))}
 
   watch-registry
-  {:doc "Watch MCP window shards (consumer view). Terse log to .tmp/registry-watch.log [--verbose EDN]"
+  {:doc "Watch MCP window entries (consumer view). Terse log to .tmp/registry-watch.log [--verbose EDN]"
    :task (watch-registry/main! *command-line-args*)}}}

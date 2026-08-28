@@ -11,10 +11,10 @@
 (defonce !media (atom {}))
 
 (defn media-dir
-  "Returns the mcp-media directory for shard `server-name`-`window-id`."
+  "Returns the mcp-media directory for entry `server-name`-`window-id`."
   [config server-name window-id]
   (let [registry-home (path/dirname (registry/registry-dir config))]
-    (path/join (path/dirname registry-home) "mcp-media" (registry/shard-name server-name window-id))))
+    (path/join (path/dirname registry-home) "mcp-media" (registry/entry-name server-name window-id))))
 
 (defn- file-stale?
   [file-path now-ms age]

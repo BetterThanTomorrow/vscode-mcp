@@ -14,8 +14,8 @@
    [java.util Base64]))
 
 (def cli-opts
-  {:spec {:server-name {:desc "Shard serverName from `bb list`"}
-          :window-id {:desc "Shard windowId from `bb list`"}
+  {:spec {:server-name {:desc "serverName from `bb list`"}
+          :window-id {:desc "windowId from `bb list`"}
           :name {:desc "Tool name (`tools/call`)"}
           :uri {:desc "Resource URI (`resources/read`)"}
           :args {:desc "Tool arguments: `-` reads JSON from stdin"}
@@ -163,35 +163,35 @@
           (catch Exception _
             (invalid-args ctx "`--args -` needs a JSON object on stdin.")))))))
 
-(defn- shard-match?
-  [shard opts]
-  (and (= (:serverName shard) (:server-name opts))
-       (= (:windowId shard) (:window-id opts))))
+(defn- entry-match?
+  [entry opts]
+  (and (= (:serverName entry) (:server-name opts))
+       (= (:windowId entry) (:window-id opts))))
 
 (defn- mcp-ready?
-  [shard]
-  (and (get-in shard [:mcp :host])
-       (get-in shard [:mcp :port])))
+  [entry]
+  (and (get-in entry [:mcp :host])
+       (get-in entry [:mcp :port])))
 
 (defn resolve-window
-  "Finds the live shard for `--server-name` and `--window-id`. Missing is `unknown-id`; stale or no MCP address is `window-gone`."
+  "Finds the live entry for `--server-name` and `--window-id`. Missing is `unknown-id`; stale or no MCP address is `window-gone`."
   [ctx]
   (if (:mcp/error ctx)
     ctx
     (let [dir (listing/windows-dir (:mcp/opts ctx))
-          match (->> (listing/shard-paths dir)
-                     (keep listing/read-shard)
-                     (some (fn [shard]
-                             (when (shard-match? shard (:mcp/opts ctx))
-                               shard))))]
+          match (->> (listing/entry-paths dir)
+                     (keep listing/read-entry)
+                     (some (fn [entry]
+                             (when (entry-match? entry (:mcp/opts ctx))
+                               entry))))]
       (cond
         (nil? match)
-        (fail ctx "unknown-id" "No shard for that --server-name and --window-id. Run `bb list` again.")
+        (fail ctx "unknown-id" "No listing for that --server-name and --window-id. Run `bb list` again.")
         (not (listing/live? match))
         (fail ctx "window-gone" "That window is gone. Run `bb list` again.")
         (not (mcp-ready? match))
         (fail ctx "window-gone" "That window is gone. Run `bb list` again.")
-        :else (assoc ctx :mcp/dir dir :mcp/shard match)))))
+        :else (assoc ctx :mcp/dir dir :mcp/entry match)))))
 
 (defn- rpc-params
   [verb opts arguments]
@@ -315,15 +315,15 @@
     {:result result :writes writes}))
 
 (defn media-dir-for
-  "Returns `mcp-media/<shard-name>` beside the registry home derived from `--dir`."
+  "Returns `mcp-media/<entry-name>` beside the registry home derived from `--dir`."
   [ctx]
   (let [windows-dir (or (:mcp/dir ctx)
                         (listing/windows-dir (:mcp/opts ctx)))
         registry-home (fs/parent windows-dir)
-        stem (or (get-in ctx [:mcp/shard :name])
-                 (str (get-in ctx [:mcp/shard :serverName])
+        stem (or (get-in ctx [:mcp/entry :name])
+                 (str (get-in ctx [:mcp/entry :serverName])
                       "-"
-                      (get-in ctx [:mcp/shard :windowId])))]
+                      (get-in ctx [:mcp/entry :windowId])))]
     (str (fs/path (fs/parent registry-home) "mcp-media" stem))))
 
 (defn rewrite-media-parts
@@ -420,8 +420,8 @@
 
 (defn- connected-exchange
   [ctx sock]
-  (let [host (get-in ctx [:mcp/shard :mcp :host])
-        port (get-in ctx [:mcp/shard :mcp :port])
+  (let [host (get-in ctx [:mcp/entry :mcp :host])
+        port (get-in ctx [:mcp/entry :mcp :port])
         ctx (try
               (connect-socket! sock host port)
               ctx
@@ -435,7 +435,7 @@
           (apply-read-ex ctx e))))))
 
 (defn exchange-rpc!
-  "Sends `:mcp/rpc-request` to the shard socket and stores `:mcp/rpc-response`.
+  "Sends `:mcp/rpc-request` to the entry socket and stores `:mcp/rpc-response`.
    Connect failure in 5s is `window-gone`; request deadline is `--timeout`."
   [ctx]
   (if (:mcp/error ctx)
@@ -456,7 +456,7 @@
     {:ok true :result (:mcp/result ctx)}))
 
 (defn request-method!
-  "Sends one JSON-RPC method on the resolved shard. Returns ctx with `:mcp/result` or `:mcp/error`."
+  "Sends one JSON-RPC method on the resolved entry. Returns ctx with `:mcp/result` or `:mcp/error`."
   [ctx method params]
   (-> ctx
       (dissoc :mcp/error :mcp/exit :mcp/result :mcp/rpc-response)

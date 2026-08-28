@@ -12,7 +12,7 @@ Prefer `bb list` over reading `windows/*.json` yourself.
 bb list           # live windows, text
 bb list --edn     # same snapshot as EDN
 bb list --json    # same snapshot as JSON
-bb list --stale   # include shards that fail the live filter (debugging)
+bb list --stale   # include entries that fail the live filter (debugging)
 ```
 
 If `bb` is not on `PATH`, install Babashka from https://github.com/babashka/babashka#installation and retry `bb list`. Prefer that over opening the JSON files. Reading `windows/*.json` is valid (those files are what the lister parses); it is the worse path when the lister is installed.
@@ -23,7 +23,7 @@ Use the list to pick the relevant server. The listing contains `appId` (editor C
 
 Attach from the `mcp` fields: spawn `node <wrapperPath> <portFilePath> <host>`, or write the harness' MCP config from the same fields and then ask the user to connect.
 
-After attach, query MCP for live details. Shard session and runtime fields can lag; MCP is current.
+After attach, query MCP for live details. Entry session and runtime fields can lag; MCP is current.
 
 ## If you cannot hold an MCP session
 

@@ -41,11 +41,11 @@
 
 (defn live?
   "True when `pid` is running and `updatedAt` is younger than `ttl-ms`."
-  [shard]
+  [entry]
   (boolean
-   (and shard
-        (pid-alive? (:pid shard))
-        (when-let [age (age-ms (:updatedAt shard))]
+   (and entry
+        (pid-alive? (:pid entry))
+        (when-let [age (age-ms (:updatedAt entry))]
           (< age ttl-ms)))))
 
 (defn project-root-display
@@ -85,9 +85,9 @@
       (seq builds) (assoc :builds builds))))
 
 (defn extra-discovery
-  "Provider keys on `shard` that are not the core envelope or `sessions`."
-  [shard]
-  (not-empty (apply dissoc shard envelope-keys)))
+  "Provider keys on `entry` that are not the core envelope or `sessions`."
+  [entry]
+  (not-empty (apply dissoc entry envelope-keys)))
 
 (defn- parent-path
   "Directory of `path`, keeping the original separator."
@@ -99,25 +99,25 @@
 (defn session-rel-root
   "Directory used to relativize session projectRoot. First folder if present,
    else parent of a .code-workspace path, else workspaceRoot."
-  [shard]
-  (or (not-empty (:workspaceFolder shard))
-      (when-let [root (:workspaceRoot shard)]
+  [entry]
+  (or (not-empty (:workspaceFolder entry))
+      (when-let [root (:workspaceRoot entry)]
         (if (string/ends-with? root ".code-workspace")
           (or (parent-path root) root)
           root))))
 
 (defn window-snapshot
-  [shard]
-  (let [ws (:workspaceRoot shard)
-        sessions (mapv #(session-snapshot % (session-rel-root shard)) (:sessions shard))
-        extra (extra-discovery shard)]
-    (cond-> {:serverName (:serverName shard)
-             :windowId (:windowId shard)
-             :hostname (:hostname shard)
-             :ageMs (age-ms (:updatedAt shard))}
-      (:appId shard) (assoc :appId (:appId shard))
+  [entry]
+  (let [ws (:workspaceRoot entry)
+        sessions (mapv #(session-snapshot % (session-rel-root entry)) (:sessions entry))
+        extra (extra-discovery entry)]
+    (cond-> {:serverName (:serverName entry)
+             :windowId (:windowId entry)
+             :hostname (:hostname entry)
+             :ageMs (age-ms (:updatedAt entry))}
+      (:appId entry) (assoc :appId (:appId entry))
       ws (assoc :workspaceRoot ws)
-      (:mcp shard) (assoc :mcp (select-keys (:mcp shard)
+      (:mcp entry) (assoc :mcp (select-keys (:mcp entry)
                                            [:host :port :wrapperPath :portFilePath]))
       (seq sessions) (assoc :sessions sessions)
       extra (merge extra))))
@@ -183,7 +183,7 @@
               (map #(format-session-line % key-width) sessions)))
       (map format-extra-line (extra-from-snap snap))))))
 
-(defn shard-paths
+(defn entry-paths
   [dir]
   (->> (fs/glob dir "*.json")
        (map str)
@@ -191,7 +191,7 @@
        sort
        vec))
 
-(defn read-shard
+(defn read-entry
   [path]
   (try
     (json/parse-string (slurp path) true)
@@ -205,8 +205,8 @@
 
 (defn list-snapshots
   [dir include-stale?]
-  (->> (shard-paths dir)
-       (keep read-shard)
+  (->> (entry-paths dir)
+       (keep read-entry)
        (filter (if include-stale? identity live?))
        (map window-snapshot)
        (sort-by (juxt :serverName :windowId))

@@ -21,7 +21,7 @@
   []
   (str (.minusSeconds (java.time.Instant/now) 120)))
 
-(defn- live-shard
+(defn- live-entry
   [& {:keys [server-name window-id host port omit-mcp?]
       :or {server-name "bd" window-id "ws-1" host "127.0.0.1" port 9}}]
   (cond-> {:schemaVersion 1
@@ -32,11 +32,11 @@
            :updatedAt (iso-now)}
     (not omit-mcp?) (assoc :mcp {:host host :port port})))
 
-(defn- write-shard!
-  [dir shard]
+(defn- write-entry!
+  [dir entry]
   (fs/create-dirs dir)
-  (spit (str (fs/path dir (str (:name shard) ".json")))
-        (json/generate-string shard)))
+  (spit (str (fs/path dir (str (:name entry) ".json")))
+        (json/generate-string entry)))
 
 (defn- with-tmp-dir
   [f]
@@ -116,16 +116,16 @@
     (fn [tmp]
       (let [windows (str (fs/path tmp "registry" "windows"))
             opts {:server-name "bd" :window-id "ws-1" :dir windows}]
-        (write-shard! windows (live-shard))
+        (write-entry! windows (live-entry))
         (let [ok (mcp/resolve-window {:mcp/opts opts})]
           (is (nil? (:mcp/error ok)))
-          (is (= "bd" (get-in ok [:mcp/shard :serverName])))
+          (is (= "bd" (get-in ok [:mcp/entry :serverName])))
           (is (= windows (:mcp/dir ok))))
         (is (= "unknown-id"
                (err-code (mcp/resolve-window {:mcp/opts (assoc opts :window-id "nope")}))))
-        (write-shard! windows (assoc (live-shard) :updatedAt (iso-old)))
+        (write-entry! windows (assoc (live-entry) :updatedAt (iso-old)))
         (is (= "window-gone" (err-code (mcp/resolve-window {:mcp/opts opts}))))
-        (write-shard! windows (live-shard :omit-mcp? true))
+        (write-entry! windows (live-entry :omit-mcp? true))
         (is (= "window-gone" (err-code (mcp/resolve-window {:mcp/opts opts}))))))))
 
 (deftest take-rpc-outcome-skip
@@ -205,7 +205,7 @@
     (fn [tmp]
       (let [windows (str (fs/path tmp "registry" "windows"))
             ctx {:mcp/dir windows
-                 :mcp/shard {:name "bd-ws-1"}
+                 :mcp/entry {:name "bd-ws-1"}
                  :mcp/result {:content [{:type "image" :mimeType "image/png" :data png-b64}]}}
             out (mcp/rewrite-media-parts ctx)
             part (first (get-in out [:mcp/result :content]))]

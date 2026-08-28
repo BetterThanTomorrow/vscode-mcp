@@ -6,10 +6,10 @@
    [cljs.test :refer [deftest is testing]]
    [vscode-mcp.registry :as sut]))
 
-(deftest shard-naming-test
+(deftest entry-naming-test
   (testing "name and filename include server and window id"
-    (is (= "backseat-driver-ws-1a2b3c" (sut/shard-name "backseat-driver" "ws-1a2b3c")))
-    (is (= "joyride-win-abc.json" (sut/shard-filename "joyride" "win-abc")))))
+    (is (= "backseat-driver-ws-1a2b3c" (sut/entry-name "backseat-driver" "ws-1a2b3c")))
+    (is (= "joyride-win-abc.json" (sut/entry-filename "joyride" "win-abc")))))
 
 (deftest registry-dir-test
   (testing "override wins"
@@ -122,7 +122,7 @@
           (is (= (sut/current-pid) (:pid doc))))
         (is (empty? (filter #(re-find #"\.tmp$" %)
                             (array-seq (fs/readdirSync tmp-root))))))
-      (testing "sweep keeps live-pid shard and removes dead-pid shard"
+      (testing "sweep keeps live-pid entry and removes dead-pid entry"
         (let [dead (path/join tmp-root "dead.json")]
           (fs/writeFileSync dead "{\"pid\":99999999}")
           (sut/sweep-dead-pid-files! tmp-root)

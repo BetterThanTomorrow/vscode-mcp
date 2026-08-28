@@ -46,11 +46,11 @@
        (.toEpochMilli (java.time.Instant/parse iso)))))
 
 (defn live?
-  [shard ttl-ms]
+  [entry ttl-ms]
   (boolean
-   (and shard
-        (pid-alive? (:pid shard))
-        (when-let [age (age-ms (:updatedAt shard))]
+   (and entry
+        (pid-alive? (:pid entry))
+        (when-let [age (age-ms (:updatedAt entry))]
           (< age ttl-ms)))))
 
 (defn session-id
@@ -75,11 +75,11 @@
       (seq builds) (assoc :builds builds))))
 
 (defn consumer-view
-  [shard]
-  (when shard
-    (-> shard
+  [entry]
+  (when entry
+    (-> entry
         (select-keys [:name :serverName :windowId :appId :workspaceRoot :hostname :pid :mcp])
-        (assoc :sessions (mapv compact-session (:sessions shard))))))
+        (assoc :sessions (mapv compact-session (:sessions entry))))))
 
 (defn session-index
   [view]
@@ -146,14 +146,14 @@
 
             :else []))))
 
-(defn shard-paths
+(defn entry-paths
   [dir]
   (->> (fs/glob dir "*.json")
        (map str)
        (remove #(string/ends-with? % ".tmp"))
        vec))
 
-(defn read-shard
+(defn read-entry
   [path]
   (try
     (json/parse-string (slurp path) true)
@@ -162,22 +162,22 @@
 
 (defn snapshot-entry
   [path ttl-ms]
-  (when-let [shard (read-shard path)]
-    (let [view (consumer-view shard)]
+  (when-let [entry (read-entry path)]
+    (let [view (consumer-view entry)]
       [(:name view (fs/file-name path))
-       {:live? (live? shard ttl-ms)
+       {:live? (live? entry ttl-ms)
         :view view
         :path path}])))
 
 (defn snapshot-dir
   [dir ttl-ms]
-  (into {} (keep #(snapshot-entry % ttl-ms) (shard-paths dir))))
+  (into {} (keep #(snapshot-entry % ttl-ms) (entry-paths dir))))
 
 (defn tick
   [prev next-snap]
-  {:events (vec (mapcat (fn [shard-name]
-                          (events-for-name (get prev shard-name)
-                                           (get next-snap shard-name)))
+  {:events (vec (mapcat (fn [entry-name]
+                          (events-for-name (get prev entry-name)
+                                           (get next-snap entry-name)))
                         (set (concat (keys prev) (keys next-snap)))))
    :next next-snap})
 
