@@ -1,5 +1,6 @@
 (ns mcp
-  "Installed `bb mcp`: one JSON-RPC request to a live window socket, or a `--readme` briefing."
+  "A one-request-at-the-time command that speaks MCP-ish. 
+   For bots and agents that can't run an MCP connector on the VS Code machine (e.g. Grok Bots)"
   (:require
    [babashka.cli :as cli]
    [babashka.fs :as fs]
@@ -8,9 +9,9 @@
    [list-registry :as listing]
    [mcp-briefing :as briefing])
   (:import
-    [java.io BufferedReader InputStreamReader]
-    [java.net InetSocketAddress Socket]
-    [java.util Base64]))
+   [java.io BufferedReader InputStreamReader]
+   [java.net InetSocketAddress Socket]
+   [java.util Base64]))
 
 (def cli-opts
   {:spec {:server-name {:desc "Shard serverName from `bb list`"}
