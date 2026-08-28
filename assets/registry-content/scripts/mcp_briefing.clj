@@ -16,7 +16,7 @@
    :description (:description init-result)
    :skills (mapv #(select-keys % [:name :uri :description])
                  (:resources resources-result))
-   :project-context "This workspace propably also has AGENTS.md and project skills or agent files. Those are not on this wire. At the very least, read AGENTS.md first, and glob for skills and agents."
+   :project-context "This workspace probably also has AGENTS.md and project skills or agent files. Those are not on this wire. At the very least, read AGENTS.md first, and glob for skills and agents."
    :tools (mapv #(select-keys % [:name :userDescription])
                 (:tools tools-result))
    :next "Read relevant skills with `resources/read`. Inspect a tool with `bb mcp --readme-tool <name>`."})

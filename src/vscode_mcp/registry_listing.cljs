@@ -130,7 +130,8 @@
       (p/resolved :skipped-no-context)
 
       (and js/goog.DEBUG (sibling-usable? sibling))
-      (p/resolved (copy-sibling! sibling home))
+      (-> (p/resolved nil)
+          (p/then (fn [_] (copy-sibling! sibling home))))
 
       :else
       (install-from-github!+ config home))))
