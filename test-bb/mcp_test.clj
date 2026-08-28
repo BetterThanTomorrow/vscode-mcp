@@ -211,7 +211,7 @@
         (is (fs/exists? (:path part)))
         (is (not (contains? part :data)))
         (is (= "image" (:type part)))
-        (is (string/includes? (:path part) "mcp-media/bd-ws-1"))))))
+        (is (fs/starts-with? (:path part) (fs/path tmp "mcp-media" "bd-ws-1")))))))
 
 (deftest envelope-shapes
   (is (= {:ok true :result {:a 1}} (mcp/envelope {:mcp/result {:a 1}})))
