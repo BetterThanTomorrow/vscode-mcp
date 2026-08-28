@@ -1,5 +1,7 @@
 (ns mcp-briefing
-  "Pure `--readme` / `--readme-tool` briefing helpers for `bb mcp`.")
+  "Pure `--readme` / `--readme-tool` briefing helpers for `bb mcp`."
+  (:require
+   [clojure.string :as string]))
 
 (def readme-requests
   [["initialize" {:clientInfo {:name "bb-mcp"}}]
@@ -58,3 +60,71 @@
       (if-let [picked (pick-readme-tool (:mcp/result listed) tool-name)]
         (assoc ctx :mcp/result picked)
         (fail ctx "unknown-tool" (str "Unknown tool: " tool-name))))))
+
+(defn- skill-lines
+  [{:keys [name uri description]}]
+  (cond-> [(str "  " name)]
+    uri (conj (str "    " uri))
+    description (conj (str "    " description))))
+
+(defn- tool-lines
+  [{:keys [name userDescription]}]
+  (cond-> [(str "  " name)]
+    userDescription (conj (str "    " userDescription))))
+
+(defn format-readme-text
+  "Renders a `--readme` briefing map as plain text."
+  [{:keys [serverInfo description instructions skills tools next]}]
+  (let [title (string/trim (str (:name serverInfo) " " (:version serverInfo)))]
+    (->> (concat
+          (when-not (string/blank? title) [title])
+          (when (and description (not (string/blank? description))) ["" description])
+          (when (and instructions (not (string/blank? instructions)))
+            ["" "Instructions" "" instructions])
+          ["" "Skills"]
+          (mapcat skill-lines skills)
+          ["" "Tools"]
+          (mapcat tool-lines tools)
+          (when next ["" next]))
+         (remove nil?)
+         (string/join "\n"))))
+
+(defn maybe-plain-readme
+  "When `:hreadme` is set and there is a result, adds `:mcp/plain-text`."
+  [ctx]
+  (if (and (get-in ctx [:mcp/opts :hreadme])
+           (:mcp/result ctx)
+           (not (:mcp/error ctx)))
+    (assoc ctx :mcp/plain-text (format-readme-text (:mcp/result ctx)))
+    ctx))
+
+(defn plain-help-kind
+  "Returns `:hhelp` or `:hreadme-tool` when that human-help flag is set."
+  [opts]
+  (cond
+    (true? (:hhelp opts)) :hhelp
+    (true? (:hreadme-tool opts)) :hreadme-tool
+    :else nil))
+
+(defn cli-help-text
+  "Plain-text CLI usage. `opts-text` is babashka.cli format-opts output."
+  [opts-text]
+  (str opts-text
+       "\n\nFirst command: --readme. Then --readme-tool. See bb-mcp.md."
+       "\nPlain-text: --hhelp (usage). --hreadme is --readme as text. --hreadme-tool is --readme-tool help."))
+
+(def readme-tool-help-text
+  (str "--readme-tool <name> inspects one tool. Copy --server-name and --window-id from `bb list`.\n"
+       "\n"
+       "It calls tools/list (no extra arg) and prints that tool's name, description (modelDescription),\n"
+       "inputSchema, and next. Unknown name is unknown-tool.\n"
+       "\n"
+       "Next: `bb mcp tools/call --name <name>`.\n"
+       "Agents parse the JSON envelope. This flag prints this text instead."))
+
+(defn plain-help-text
+  "Returns the plain-text help for `kind`. `opts-text` is used by `:hhelp`."
+  [kind opts-text]
+  (case kind
+    :hhelp (cli-help-text opts-text)
+    :hreadme-tool readme-tool-help-text))

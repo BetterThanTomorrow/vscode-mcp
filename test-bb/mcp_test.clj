@@ -240,10 +240,15 @@
   (let [tool (parse "--readme-tool" "clojure_evaluate_code" "--server-name" "bd" "--window-id" "ws-1")]
     (is (nil? (:mcp/error tool)))
     (is (= "clojure_evaluate_code" (get-in tool [:mcp/opts :readme-tool]))))
+  (let [hreadme (parse "--hreadme" "--server-name" "bd" "--window-id" "ws-1")]
+    (is (nil? (:mcp/error hreadme)))
+    (is (true? (get-in hreadme [:mcp/opts :hreadme]))))
   (is (= "invalid-args" (err-code (parse "--readme"))))
+  (is (= "invalid-args" (err-code (parse "--hreadme"))))
   (is (= "invalid-args" (err-code (parse "--readme-tool" "t"))))
   (is (= "invalid-args" (err-code (parse "--readme" "ping" "--server-name" "bd" "--window-id" "ws-1"))))
   (is (= "invalid-args" (err-code (parse "ping" "--readme" "--server-name" "bd" "--window-id" "ws-1"))))
+  (is (= "invalid-args" (err-code (parse "--readme" "--hreadme" "--server-name" "bd" "--window-id" "ws-1"))))
   (is (= "invalid-args" (err-code (parse "--readme" "--readme-tool" "t" "--server-name" "bd" "--window-id" "ws-1"))))
   (is (= "invalid-args" (err-code (parse "--readme-tool" "--server-name" "bd" "--window-id" "ws-1"))))
   (let [init (parse "initialize" "--server-name" "bd" "--window-id" "ws-1")]
@@ -255,6 +260,50 @@
     (is (re-find #"--readme" msg))
     (is (re-find #"--readme-tool" msg))
     (is (not (re-find #"initialize" msg)))))
+
+(deftest parse-cli-hhelp
+  (let [hhelp (parse "--hhelp")
+        hreadme-tool (parse "--hreadme-tool")]
+    (is (nil? (:mcp/error hhelp)))
+    (is (= 0 (:mcp/exit hhelp)))
+    (is (re-find #"--readme" (:mcp/plain-text hhelp)))
+    (is (re-find #"bb-mcp.md" (:mcp/plain-text hhelp)))
+    (is (nil? (:mcp/error hreadme-tool)))
+    (is (= 0 (:mcp/exit hreadme-tool)))
+    (is (or (re-find #"inputSchema" (:mcp/plain-text hreadme-tool))
+            (re-find #"tools/call" (:mcp/plain-text hreadme-tool))))))
+
+(deftest main-hhelp-plain-text
+  (let [hhelp-exit (atom nil)
+        hhelp-out (with-out-str (reset! hhelp-exit (mcp/main! ["--hhelp"])))]
+    (is (= 0 @hhelp-exit))
+    (is (not (string/starts-with? (string/trim hhelp-out) "{")))
+    (is (re-find #"--readme" hhelp-out))
+    (is (or (re-find #"--hhelp" hhelp-out) (re-find #"bb-mcp.md" hhelp-out))))
+  (let [hrt-exit (atom nil)
+        hrt-out (with-out-str (reset! hrt-exit (mcp/main! ["--hreadme-tool"])))]
+    (is (= 0 @hrt-exit))
+    (is (not (string/starts-with? (string/trim hrt-out) "{")))
+    (is (or (re-find #"inputSchema" hrt-out) (re-find #"tools/call" hrt-out)))))
+
+(deftest format-readme-text-shape
+  (let [briefing {:serverInfo {:name "bd" :version "1"}
+                  :description "A server"
+                  :instructions "Use the tools."
+                  :skills [{:name "sk"
+                            :uri "skill://sk/SKILL.md"
+                            :description "A skill"}]
+                  :tools [{:name "t"
+                           :userDescription "User"}]
+                  :next "Read relevant skills with `resources/read`."}
+        text (mcp/format-readme-text briefing)]
+    (is (re-find #"bd" text))
+    (is (re-find #"A server" text))
+    (is (re-find #"Use the tools." text))
+    (is (re-find #"skill://sk/SKILL.md" text))
+    (is (re-find #"User" text))
+    (is (re-find #"resources/read" text))
+    (is (not (string/starts-with? (string/trim text) "{")))))
 
 (deftest compose-readme-briefing-shape
   (let [briefing (mcp/compose-readme-briefing
@@ -299,6 +348,32 @@
                                       (assoc ctx :mcp/result {:tools [{:name "t"}]}))]
     (is (= "unknown-tool"
            (err-code (mcp/run-readme-tool! {:mcp/opts {:readme-tool "nope"}}))))))
+
+(deftest hreadme-plain-text-from-briefing
+  (let [init-result {:serverInfo {:name "bd"}
+                     :instructions "i"
+                     :description "d"}
+        resources-result {:resources [{:name "sk"
+                                       :uri "skill://sk/SKILL.md"
+                                       :description "A skill"}]}
+        tools-result {:tools [{:name "t"
+                               :userDescription "User"
+                               :description "Model"
+                               :inputSchema {:type "object"}}]}]
+    (with-redefs [mcp/request-method!
+                  (fn [ctx method _params]
+                    (assoc ctx :mcp/result
+                           (case method
+                             "initialize" init-result
+                             "resources/list" resources-result
+                             "tools/list" tools-result)))]
+      (let [out (mcp/run-readme! {:mcp/opts {:hreadme true}})]
+        (is (nil? (:mcp/error out)))
+        (is (map? (:mcp/result out)))
+        (let [text (:mcp/plain-text out)]
+          (is (re-find #"bd" text))
+          (is (re-find #"skill://sk/SKILL.md" text))
+          (is (re-find #"User" text)))))))
 
 (deftest run-readme-rpc-sequence
   (let [calls (atom [])

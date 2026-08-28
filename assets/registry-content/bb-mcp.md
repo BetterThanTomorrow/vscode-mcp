@@ -8,10 +8,11 @@ First command is `--readme`. Then `--readme-tool` for one tool. Then work verbs:
 
 ```sh
 bb mcp --readme --server-name calva-backseat-driver --window-id <windowId>
+bb mcp --hreadme --server-name calva-backseat-driver --window-id <windowId>
 bb mcp --readme-tool clojure_evaluate_code --server-name calva-backseat-driver --window-id <windowId>
 ```
 
-`--readme` and `--readme-tool` are flags on `bb mcp`. They cannot be combined with each other or with a method verb. `--server-name` / `--window-id` are still required.
+`--readme`, `--hreadme`, and `--readme-tool` are flags on `bb mcp`. They cannot be combined with each other or with a method verb. `--server-name` / `--window-id` are still required.
 
 `--readme` briefs the server in one `result`: `serverInfo`, `instructions`, `description`, published skills (name, URI, description — not bodies), and tools as `name` + `userDescription`. Then read relevant skills with `resources/read`, and inspect a tool with `--readme-tool`.
 
@@ -61,10 +62,13 @@ bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId>
 | `--uri` | `resources/read` | Resource URI |
 | `--args -` | `tools/call` | JSON object on stdin. Omit `--args` to send `{}`. |
 | `--timeout` | all | Seconds to wait for the JSON-RPC **response** after connect. Default **180**. `0` means wait until a line arrives. Does not cancel the tool. |
+| `--hhelp` | help | Same CLI usage as `--help`, plain text on stdout (exit 0) |
+| `--hreadme` | first job (text) | Same briefing as `--readme`, plain text on stdout |
+| `--hreadme-tool` | help | Prose for what `--readme-tool` does |
 
 Connect has its own 5 second budget. Connect failure is `window-gone`, not `timeout`.
 
-`--help` / `-h` prints the same failure envelope as other flag errors (`invalid-args`, exit 1), with usage in `error.message`. First command in that usage is `--readme`.
+Agents use `--help` / `-h`: JSON `invalid-args` envelope, exit 1, usage in `error.message`. Humans use `--hhelp` for usage (plain text, exit 0, no shard flags). `--hreadme` needs `--server-name` / `--window-id` and prints the live briefing as plain text (exit 0). `--hreadme-tool` is prose help for `--readme-tool` (plain text, exit 0, no shard flags).
 
 ## Envelope
 

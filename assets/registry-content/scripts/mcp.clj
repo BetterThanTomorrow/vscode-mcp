@@ -27,6 +27,12 @@
           :help {:coerce :boolean
                  :alias :h
                  :desc "Print usage as an invalid-args envelope"}
+          :hhelp {:coerce :boolean
+                  :desc "Plain-text CLI usage"}
+          :hreadme {:coerce :boolean
+                    :desc "Same briefing as --readme, as plain text"}
+          :hreadme-tool {:coerce :boolean
+                         :desc "Plain-text --readme-tool help"}
           :dir {:coerce :string
                 :alias :d
                 :desc "Windows directory"}}
@@ -35,11 +41,6 @@
 (def verbs
   #{"initialize" "tools/list" "tools/call" "resources/list"
     "resources/templates/list" "resources/read" "ping"})
-
-(defn- help-message
-  []
-  (str (cli/format-opts cli-opts)
-       "\n\nFirst command: --readme. Then --readme-tool. See bb-mcp.md."))
 
 (defn- fail
   ([ctx code message]
@@ -54,13 +55,27 @@
   [ctx message]
   (fail ctx "invalid-args" message))
 
+(defn- apply-help
+  [ctx]
+  (let [opts (:mcp/opts ctx)
+        opts-text (cli/format-opts cli-opts)]
+    (if-let [kind (briefing/plain-help-kind opts)]
+      (assoc ctx
+             :mcp/plain-text (briefing/plain-help-text kind opts-text)
+             :mcp/exit 0)
+      (when (:help opts)
+        (invalid-args ctx (briefing/cli-help-text opts-text))))))
+
 (defn- readme-job
   [opts]
-  (cond
-    (and (:readme opts) (contains? opts :readme-tool)) :conflict
-    (:readme opts) :readme
-    (contains? opts :readme-tool) :readme-tool
-    :else nil))
+  (let [n (+ (if (:readme opts) 1 0)
+             (if (:hreadme opts) 1 0)
+             (if (contains? opts :readme-tool) 1 0))]
+    (cond
+      (> n 1) :conflict
+      (or (:readme opts) (:hreadme opts)) :readme
+      (contains? opts :readme-tool) :readme-tool
+      :else nil)))
 
 (defn- verb-error
   [ctx]
@@ -68,9 +83,9 @@
         job (readme-job (:mcp/opts ctx))]
     (cond
       (and job verb)
-      "--readme / --readme-tool cannot be combined with a method verb. See bb-mcp.md."
+      "--readme / --hreadme / --readme-tool cannot be combined with a method verb. See bb-mcp.md."
       (= :conflict job)
-      "--readme and --readme-tool are mutually exclusive. See bb-mcp.md."
+      "--readme, --hreadme, and --readme-tool are mutually exclusive. See bb-mcp.md."
       (and (nil? job) (nil? verb))
       "Missing MCP method. See bb-mcp.md."
       (seq (:mcp/extra-args ctx))
@@ -103,8 +118,8 @@
 
 (defn- validate-cli
   [ctx]
-  (if (:help (:mcp/opts ctx))
-    (invalid-args ctx (help-message))
+  (if-let [helped (apply-help ctx)]
+    helped
     (if-let [msg (or (verb-error ctx) (flag-error ctx))]
       (invalid-args ctx msg)
       ctx)))
@@ -451,14 +466,17 @@
       apply-rpc-result))
 
 (defn compose-readme-briefing
-  "Builds the `--readme` result from initialize, resources/list, and tools/list."
   [init-result resources-result tools-result]
   (briefing/compose-readme-briefing init-result resources-result tools-result))
+
+(defn format-readme-text
+  [briefing]
+  (briefing/format-readme-text briefing))
 
 (defn run-readme!
   "Runs initialize, resources/list, and tools/list (with userDescription) and composes one briefing."
   [ctx]
-  (briefing/run-readme! ctx request-method!))
+  (briefing/maybe-plain-readme (briefing/run-readme! ctx request-method!)))
 
 (defn pick-readme-tool
   "Returns the `--readme-tool` result map, or nil when the name is missing."
@@ -473,25 +491,33 @@
 (defn run-pipeline
   "Runs parse through media rewrite. Bind a ctx map and replay from any step."
   [ctx]
-  (let [prepared (-> ctx parse-cli gather-stdin resolve-window)]
-    (if (:mcp/error prepared)
-      prepared
-      (case (readme-job (:mcp/opts prepared))
-        :readme (run-readme! prepared)
-        :readme-tool (run-readme-tool! prepared)
-        (-> prepared
-            build-rpc
-            exchange-rpc!
-            apply-rpc-result
-            rewrite-media-parts)))))
+  (let [parsed (parse-cli ctx)]
+    (cond
+      (:mcp/error parsed) parsed
+      (:mcp/plain-text parsed) parsed
+      :else
+      (let [prepared (-> parsed gather-stdin resolve-window)]
+        (if (:mcp/error prepared)
+          prepared
+          (case (readme-job (:mcp/opts prepared))
+            :readme (run-readme! prepared)
+            :readme-tool (run-readme-tool! prepared)
+            (-> prepared
+                build-rpc
+                exchange-rpc!
+                apply-rpc-result
+                rewrite-media-parts)))))))
 
 (defn main!
-  "Prints one JSON envelope on stdout and returns 0 or 1. Require-safe: no `System/exit`."
+  "Prints one JSON envelope on stdout and returns 0 or 1, except `--hhelp` / `--hreadme-tool` (help text) and `--hreadme` (briefing as text), which print plain text and return 0. Require-safe: no `System/exit`."
   [args]
   (try
     (let [ctx (run-pipeline {:mcp/argv args})]
-      (println (json/generate-string (envelope ctx)))
-      (or (:mcp/exit ctx) 0))
+      (if-let [text (:mcp/plain-text ctx)]
+        (do (println text)
+            (or (:mcp/exit ctx) 0))
+        (do (println (json/generate-string (envelope ctx)))
+            (or (:mcp/exit ctx) 0))))
     (catch Exception e
       (println (json/generate-string {:ok false
                                       :error {:code "protocol-error"
