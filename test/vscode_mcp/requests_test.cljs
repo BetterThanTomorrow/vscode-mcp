@@ -137,3 +137,20 @@
     (is (= -32601 (get-in res [:error :code])))
     (is (string/includes? (get-in res [:error :message]) "nope")))
   (is (nil? (sut/handle-manifest-request #js {} {:method "nope"} {:settings {}}))))
+
+(deftest tools-list-include-user-description-test
+  (let [ctx (mock-tool-context #js [#js {:name "t"
+                                         :modelDescription "Model"
+                                         :userDescription "User"}])]
+    (testing "default tools/list omits userDescription"
+      (let [tool (first (get-in (sut/handle-manifest-request ctx {:method "tools/list" :id 1} {:settings {}})
+                                [:result :tools]))]
+        (is (= "t" (:name tool)))
+        (is (not (contains? tool :userDescription)))))
+    (testing "includeUserDescription adds userDescription"
+      (let [tool (first (get-in (sut/handle-manifest-request
+                                 ctx
+                                 {:method "tools/list" :id 2 :params {:includeUserDescription true}}
+                                 {:settings {}})
+                                [:result :tools]))]
+        (is (= "User" (:userDescription tool)))))))

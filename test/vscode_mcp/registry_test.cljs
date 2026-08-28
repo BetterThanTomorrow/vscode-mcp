@@ -6,10 +6,10 @@
    [cljs.test :refer [deftest is testing]]
    [vscode-mcp.registry :as sut]))
 
-(deftest shard-naming-test
+(deftest entry-naming-test
   (testing "name and filename include server and window id"
-    (is (= "backseat-driver-ws-1a2b3c" (sut/shard-name "backseat-driver" "ws-1a2b3c")))
-    (is (= "joyride-win-abc.json" (sut/shard-filename "joyride" "win-abc")))))
+    (is (= "backseat-driver-ws-1a2b3c" (sut/entry-name "backseat-driver" "ws-1a2b3c")))
+    (is (= "joyride-win-abc.json" (sut/entry-filename "joyride" "win-abc")))))
 
 (deftest registry-dir-test
   (testing "override wins"
@@ -32,6 +32,8 @@
       (is (= "Pappas-data" (:hostname env)))
       (is (= 48291 (:pid env)))
       (is (nil? (:workspaceRoot env)))
+      (is (nil? (:appId env)))
+      (is (nil? (:workspaceFolder env)))
       (is (nil? (:mcp env)))))
   (testing "workspaceRoot and mcp are included when provided"
     (let [mcp {:host "127.0.0.1" :port 1664}
@@ -43,7 +45,19 @@
                                    :updated-at "t"
                                    :mcp mcp})]
       (is (= "/Users/pez/Projects/my-app" (:workspaceRoot env)))
-      (is (= mcp (:mcp env))))))
+      (is (= mcp (:mcp env)))))
+  (testing "appId and workspaceFolder are included when provided"
+    (let [env (sut/build-envelope {:server-name "backseat-driver"
+                                   :window-id "ws-1a2b3c"
+                                   :app-id "cursor"
+                                   :workspace-root "/ws/app.code-workspace"
+                                   :workspace-folder "/Users/pez/Projects/my-app"
+                                   :hostname "host"
+                                   :pid 1
+                                   :updated-at "t"})]
+      (is (= "cursor" (:appId env)))
+      (is (= "/ws/app.code-workspace" (:workspaceRoot env)))
+      (is (= "/Users/pez/Projects/my-app" (:workspaceFolder env))))))
 
 (deftest mcp-info-test
   (testing "nil when no assigned port"
@@ -75,12 +89,16 @@
       (let [merged (sut/merge-custom-data envelope {:pid 999
                                                     :name "hijack"
                                                     :serverName "other"
+                                                    :appId "hijack"
+                                                    :workspaceFolder "/x"
                                                     :sessions [1]
                                                     :schemaVersion 99})]
         (is (= 1 (:pid merged)))
         (is (= "backseat-driver-ws-1" (:name merged)))
         (is (= "backseat-driver" (:serverName merged)))
         (is (= 1 (:schemaVersion merged)))
+        (is (nil? (:appId merged)))
+        (is (nil? (:workspaceFolder merged)))
         (is (= [1] (:sessions merged)))))
     (testing "nil custom-data leaves envelope"
       (is (= envelope (sut/merge-custom-data envelope nil))))))
@@ -104,7 +122,7 @@
           (is (= (sut/current-pid) (:pid doc))))
         (is (empty? (filter #(re-find #"\.tmp$" %)
                             (array-seq (fs/readdirSync tmp-root))))))
-      (testing "sweep keeps live-pid shard and removes dead-pid shard"
+      (testing "sweep keeps live-pid entry and removes dead-pid entry"
         (let [dead (path/join tmp-root "dead.json")]
           (fs/writeFileSync dead "{\"pid\":99999999}")
           (sut/sweep-dead-pid-files! tmp-root)

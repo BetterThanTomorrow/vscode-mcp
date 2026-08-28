@@ -1,5 +1,7 @@
 (ns vscode-mcp.cursor
   (:require
+   ["fs" :as fs]
+   ["path" :as path]
    ["vscode" :as vscode]
    [vscode-mcp.cursor-config :as config]
    [promesa.core :as p]))
@@ -16,10 +18,34 @@
           .-uri
           .-fsPath))
 
+(defn current-workspace-location
+  "Path the instance slug hashes: workspace file, else first folder."
+  []
+  (or (some-> ^js vscode/workspace.workspaceFile .-fsPath)
+      (current-workspace-root)))
+
+(defn- product-application-name
+  []
+  (try
+    (let [file (path/join (.-appRoot vscode/env) "product.json")]
+      (when (fs/existsSync file)
+        (not-empty
+         (:applicationName
+          (js->clj (js/JSON.parse (fs/readFileSync file "utf8"))
+                   :keywordize-keys true)))))
+    (catch :default _
+      nil)))
+
+(defn current-app-id
+  []
+  (config/app-id (product-application-name) (.-uriScheme vscode/env)))
+
 (defn current-instance-slug
   [_]
   (config/instance-slug
-   #:instance{:workspace-root-path (current-workspace-root)}))
+   #:instance{:app-id (.-uriScheme vscode/env)
+              :workspace-file-path (some-> ^js vscode/workspace.workspaceFile .-fsPath)
+              :workspace-root-path (current-workspace-root)}))
 
 (def ^:private registered-names-key "vscode-mcp.cursor/registered-names")
 

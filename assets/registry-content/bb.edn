@@ -1,0 +1,12 @@
+{:paths ["scripts"]
+ :tasks
+ {:requires ([list-registry]
+             [mcp])
+
+  list
+  {:doc "List MCP windows for attach [--json | --edn] [--stale]"
+   :task (list-registry/main! *command-line-args*)}
+
+  mcp
+  {:doc "One MCP request to a live window. See bb-mcp.md."
+   :task (System/exit (mcp/main! *command-line-args*))}}}

@@ -26,14 +26,16 @@
   {:server/instance-slug "ws-abc"
    :server/assigned-port 1664
    :server/host "127.0.0.1"
+   :server/app-id "cursor"
    :server/workspace-root "/proj"
+   :server/workspace-folder "/proj"
    :server/port-file-uri #js {:fsPath "/tmp/port"}})
 
-(defn- shard-path [dir]
+(defn- entry-path [dir]
   (path/join dir "backseat-driver-ws-abc.json"))
 
-(defn- read-shard [dir]
-  (let [p (shard-path dir)]
+(defn- read-entry [dir]
+  (let [p (entry-path dir)]
     (when (fs/existsSync p)
       (js->clj (js/JSON.parse (fs/readFileSync p "utf8"))
                :keywordize-keys true))))
@@ -47,7 +49,7 @@
   (when (and dir (fs/existsSync dir))
     (fs/rmSync dir #js {:recursive true :force true})))
 
-(deftest on-started-writes-shard-test
+(deftest on-started-writes-entry-test
   (async done
          (let [dir (tmp-dir)
                calls (atom 0)
@@ -57,13 +59,15 @@
                                          (p/resolved {:sessions [{:replSessionKey "clj"}]}))})]
            (-> (sut/on-started!+ config (tmp-info))
                (p/then (fn [_]
-                         (let [doc (read-shard dir)]
+                         (let [doc (read-entry dir)]
                            (is (= 1 @calls))
                            (is (= 1 (:schemaVersion doc)))
                            (is (= "backseat-driver-ws-abc" (:name doc)))
                            (is (= "backseat-driver" (:serverName doc)))
                            (is (= "ws-abc" (:windowId doc)))
+                           (is (= "cursor" (:appId doc)))
                            (is (= "/proj" (:workspaceRoot doc)))
+                           (is (= "/proj" (:workspaceFolder doc)))
                            (is (= (.-pid js/process) (:pid doc)))
                            (is (= 1664 (get-in doc [:mcp :port])))
                            (is (= [{:replSessionKey "clj"}] (:sessions doc))))))
@@ -78,7 +82,7 @@
            (-> (sut/on-started!+ config (tmp-info))
                (p/then (fn [_]
                          (sut/update-registry!+ config)
-                         (is (not (fs/existsSync (shard-path dir))))))
+                         (is (not (fs/existsSync (entry-path dir))))))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
@@ -102,7 +106,7 @@
                          (sut/update-registry!+ config)
                          (delay+ 50)))
                (p/then (fn [_]
-                         (let [doc (read-shard dir)]
+                         (let [doc (read-entry dir)]
                            (is (= ["c"] (:sessions doc)))
                            (is (= 2 @calls)
                                "start write plus one debounced refresh"))))
@@ -125,8 +129,8 @@
            (sut/on-stopped! config info)
            (-> (delay+ 120)
                (p/then (fn [_]
-                         (is (not (fs/existsSync (shard-path dir)))
-                             "stale custom-data must not recreate the shard")))
+                         (is (not (fs/existsSync (entry-path dir)))
+                             "stale custom-data must not recreate the entry")))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
@@ -144,10 +148,10 @@
                           (p/resolved {:sessions []}))})]
            (-> (sut/on-started!+ config (tmp-info))
                (p/then (fn [_]
-                         (let [first-at (:updatedAt (read-shard dir))]
+                         (let [first-at (:updatedAt (read-entry dir))]
                            (-> (delay+ 90)
                                (p/then (fn [_]
-                                         (let [doc (read-shard dir)]
+                                         (let [doc (read-entry dir)]
                                            (is (= 1 @calls))
                                            (is (some? first-at))
                                            (is (not= first-at (:updatedAt doc)))
@@ -178,7 +182,7 @@
                (p/then (fn [_]
                          (delay+ 120)))
                (p/then (fn [_]
-                         (is (= [{:fresh true}] (:sessions (read-shard dir)))
+                         (is (= [{:fresh true}] (:sessions (read-entry dir)))
                              "restart must not accept the previous generation's custom-data")))
                (p/finally (fn []
                             (cleanup! dir)

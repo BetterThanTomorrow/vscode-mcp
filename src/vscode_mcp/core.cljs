@@ -122,7 +122,9 @@
   [config state {:keys [started-server-info strategy-opts register-allowed?]}]
   (let [info (assoc started-server-info
                     :server/instance-slug (:lifecycle/instance-slug strategy-opts)
-                    :server/workspace-root (cursor/current-workspace-root))
+                    :server/workspace-root (cursor/current-workspace-location)
+                    :server/workspace-folder (cursor/current-workspace-root)
+                    :server/app-id (cursor/current-app-id))
         on-running-changed (:lifecycle/on-running-changed config)]
     (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
             info' (cond-> info
