@@ -4,6 +4,8 @@ ClojureScript library that turns a VS Code extension’s existing Copilot `langu
 
 This repo is **not** an extension. Consumers own tool implementations, settings, port-file strategy, and when-contexts.
 
+Ask yourself: Will this and the tests work on Windows too?
+
 ## Ecosystem map
 
 | Repo | Role |

@@ -89,6 +89,13 @@
   [shard]
   (not-empty (apply dissoc shard envelope-keys)))
 
+(defn- parent-path
+  "Directory of `path`, keeping the original separator."
+  [path]
+  (let [idx (max (.lastIndexOf path "/") (.lastIndexOf path "\\"))]
+    (when-not (neg? idx)
+      (subs path 0 idx))))
+
 (defn session-rel-root
   "Directory used to relativize session projectRoot. First folder if present,
    else parent of a .code-workspace path, else workspaceRoot."
@@ -96,7 +103,7 @@
   (or (not-empty (:workspaceFolder shard))
       (when-let [root (:workspaceRoot shard)]
         (if (string/ends-with? root ".code-workspace")
-          (str (fs/parent root))
+          (or (parent-path root) root)
           root))))
 
 (defn window-snapshot

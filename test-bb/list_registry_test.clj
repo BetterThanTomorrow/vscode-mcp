@@ -14,7 +14,10 @@
            (listing/session-rel-root {:workspaceRoot "/ws/app.code-workspace"}))))
   (testing "plain folder"
     (is (= "/a/proj"
-           (listing/session-rel-root {:workspaceRoot "/a/proj"})))))
+           (listing/session-rel-root {:workspaceRoot "/a/proj"}))))
+  (testing "Windows-style workspace file keeps backslash parent"
+    (is (= "C:\\ws"
+           (listing/session-rel-root {:workspaceRoot "C:\\ws\\app.code-workspace"})))))
 
 (deftest format-window-text-test
   (testing "header is serverName windowId appId workspaceRoot"
