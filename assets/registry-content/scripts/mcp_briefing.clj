@@ -16,6 +16,7 @@
    :description (:description init-result)
    :skills (mapv #(select-keys % [:name :uri :description])
                  (:resources resources-result))
+   :project-context "This workspace propably also has AGENTS.md and project skills or agent files. Those are not on this wire. At the very least, read AGENTS.md first, and glob for skills and agents."
    :tools (mapv #(select-keys % [:name :userDescription])
                 (:tools tools-result))
    :next "Read relevant skills with `resources/read`. Inspect a tool with `bb mcp --readme-tool <name>`."})
@@ -74,18 +75,20 @@
 
 (defn format-readme-text
   "Renders a `--readme` briefing map as plain text."
-  [{:keys [serverInfo description instructions skills tools next]}]
+  [{:keys [serverInfo description instructions project-context skills tools next]}]
   (let [title (string/trim (str (:name serverInfo) " " (:version serverInfo)))]
     (->> (concat
           (when-not (string/blank? title) [title])
           (when (and description (not (string/blank? description))) ["" description])
           (when (and instructions (not (string/blank? instructions)))
             ["" "Instructions" "" instructions])
+          ["" "Tools Overview"]
+          (mapcat tool-lines tools)
           ["" "Skills"]
           (mapcat skill-lines skills)
-          ["" "Tools"]
-          (mapcat tool-lines tools)
-          (when next ["" next]))
+          ["" "Project Context"]
+          ["" project-context]
+          (when next ["" "Next" "" next]))
          (remove nil?)
          (string/join "\n"))))
 
