@@ -23,22 +23,37 @@ Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those li
 
 ## Co-development with consumers
 
-Backseat Driver and Joyride both pin this library via git SHA, with a commented `:local/root` ready to flip:
+[Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) and [Joyride](https://github.com/BetterThanTomorrow/joyride) share a four-layer co-dev tower. Do not drop or rename an npm script that a VS Code task points at.
+
+1. **Shipped truth** — main `:deps` git pin (`:git/url` + `:git/sha`). Clones and CI resolve without a sibling checkout. Do **not** flip the main dep to `:local/root`.
+2. **Local overlay** — `:local-dev` alias with `:override-deps` to `{:local/root "../vscode-mcp"}`.
+3. **npm scripts** — pin-first: `watch` and `compile` use the git pin; `watch:local` activates `:local-dev`. `compile`, `release`, packaging, and CI do not activate `:local-dev`. Joyride on Windows: `watchwin` / `watchwin:local` (same pin vs local split).
+4. **VS Code tasks** (`.vscode/tasks.json`) — human intent: default **Watch** → `watch:local`; **Watch (pinned vscode-mcp)** → `watch`. Every task `"script"` value must exist in that package's `package.json` `"scripts"`. Day-to-day co-dev uses the **Watch** task, not `npm run watch`.
 
 ```edn
-;; In consumer deps.edn (pattern used by BD and Joyride):
-io.github.betterthantomorrow/vscode-mcp {;:local/root "../vscode-mcp"
-                                         :git/url "https://github.com/BetterThanTomorrow/vscode-mcp.git"
+;; Main dep — always git pin:
+io.github.betterthantomorrow/vscode-mcp {:git/url "https://github.com/BetterThanTomorrow/vscode-mcp.git"
                                          :git/sha "<pinned-sha>"}
+
+;; Alias — local sibling checkout:
+:aliases {:local-dev {:override-deps {io.github.betterthantomorrow/vscode-mcp {:local/root "../vscode-mcp"}}}}
 ```
+
+```bash
+npm run watch              # git pin (VS Code task: Watch (pinned vscode-mcp))
+npm run watch:local        # -M:local-dev (VS Code task: Watch)
+npm run compile            # git pin — CI/package
+```
+
+Joyride keeps `:dev {}` alongside `:local-dev`, uses `-M:dev` / `-M:dev:local-dev`, and has `watchwin` / `watchwin:local` on Windows.
 
 ### Local library work (agent ↔ human)
 
-1. **Agent** enables `:local/root "../vscode-mcp"` in the relevant consumer `deps.edn` (comment out or remove the git coords for that dep while local).
-2. **Agent instructs the human** to restart the consumer’s shadow-cljs watcher task(s). The watcher is usually started by the human as a VS Code/Cursor task — agents often cannot restart it reliably. Do **not** assume a classpath refresh without that restart.
-3. Develop and verify in the consumer Extension Host (F5 / consumer’s own workflow). Library unit tests: `bb test` in this repo.
-4. When the library stint is done: **hand off to the human to commit and push vscode-mcp**. Agents do not push this repo unless explicitly asked.
-5. After push, **human hands back to the agent** (or asks) to restore the git dep and set `:git/sha` to the new commit id in each consumer that should pick it up. Re-comment `:local/root`. Again instruct the human to restart shadow-cljs watchers after the pin change.
+1. **Agent or human** uses the consumer `:local-dev` alias (default **Watch** task → `watch:local`; Joyride on Windows: `watchwin:local`). Use **Watch (pinned vscode-mcp)** / `npm run watch` (Joyride: `watchwin`) on the SHA pin. Other consumer aliases (e.g. Backseat Driver `:e2e-test-joyride` for clojure-lsp / e2e Joyride sources) stay orthogonal — they must not put `:local/root` on vscode-mcp; compose with `:local-dev` only when intentional (`-A:local-dev:e2e-test-joyride`). **Instruct the human** to restart the consumer's shadow-cljs watcher task(s). Agents often cannot restart that task reliably. Do **not** assume a classpath refresh without that restart.
+2. Develop and verify in the consumer Extension Host (F5 / consumer’s own workflow). Library unit tests: `bb test` in this repo.
+3. When the library stint is done: **hand off to the human to commit and push vscode-mcp**. Agents do not push this repo unless explicitly asked.
+4. **Always** bump the consumer’s pinned `:git/sha` in the main `:deps` entry to the pushed commit id. Keep using default **Watch** (`watch:local`) for further local work, or **Watch (pinned vscode-mcp)** / `npm run watch` to verify the pin.
+5. **Instruct the human** to restart the watcher after pin or alias changes.
 
 Ship order for library features that need consumer wiring: **library first** (inert until opted in) → pin SHA in consumers → consumer setting + wiring commits.
 
