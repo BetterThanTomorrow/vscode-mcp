@@ -51,11 +51,11 @@ Joyride keeps `:dev {}` alongside `:local-dev`, uses `-M:dev` / `-M:dev:local-de
 
 1. **Agent or human** uses the consumer `:local-dev` alias (default **Watch** task → `watch:local`; Joyride on Windows: `watchwin:local`). Use **Watch (pinned vscode-mcp)** / `npm run watch` (Joyride: `watchwin`) on the SHA pin. Other consumer aliases (e.g. Backseat Driver `:e2e-test-joyride` for clojure-lsp / e2e Joyride sources) stay orthogonal — they must not put `:local/root` on vscode-mcp; compose with `:local-dev` only when intentional (`-A:local-dev:e2e-test-joyride`). **Instruct the human** to restart the consumer's shadow-cljs watcher task(s). Agents often cannot restart that task reliably. Do **not** assume a classpath refresh without that restart.
 2. Develop and verify in the consumer Extension Host (F5 / consumer’s own workflow). Library unit tests: `bb test` in this repo.
-3. When the library stint is done: **hand off to the human to commit and push vscode-mcp**. Agents do not push this repo unless explicitly asked.
-4. **Always** bump the consumer’s pinned `:git/sha` in the main `:deps` entry to the pushed commit id. Keep using default **Watch** (`watch:local`) for further local work, or **Watch (pinned vscode-mcp)** / `npm run watch` to verify the pin.
-5. **Instruct the human** to restart the watcher after pin or alias changes.
+3. **Commit vscode-mcp first** (library repo). Agents do **not** push unless explicitly asked.
+4. **Then** set each consumer’s main `:deps` `:git/sha` to that vscode-mcp commit id, and **commit** the consumer (`deps.edn` pin bump, plus any consumer wiring). Do this for Backseat Driver and for Joyride when that consumer should pick up the library. Do not commit the consumer pin before the vscode-mcp commit exists.
+5. **Hand off to the human** with an explicit push order: push **vscode-mcp first**, then **Backseat Driver** (and **Joyride** the same way when it was bumped). Instruct the human to restart consumer watchers after the pin change when they switch off `:local-dev` / verify the pin.
 
-Ship order for library features that need consumer wiring: **library first** (inert until opted in) → pin SHA in consumers → consumer setting + wiring commits.
+Ship order for library features that need consumer wiring: commit the library (inert until opted in), commit the consumer pin and any consumer wiring, then the human pushes the library and then the consumers.
 
 **ECA default:** library `:mcp/auto-register-eca?` defaults to **`false`** so a bare SHA bump stays inert. User-facing default `true` lives in the consumer’s `package.json` setting, wired into `create-config`.
 
