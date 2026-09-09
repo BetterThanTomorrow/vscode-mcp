@@ -2,7 +2,7 @@
 
 ClojureScript library that turns a VS Code extension’s existing Copilot `languageModelTools` / `chatSkills` into an MCP server (TCP in the Extension Host + stdio wrapper), with Cursor and optional ECA registration.
 
-This repo is **not** an extension. Consumers own tool implementations, settings, the legacy workspace port mirror path, and when-contexts. The library owns the primary port-file path under `~/.config/vscode-mcp/port-files/`.
+This repo is **not** an extension. Consumers own tool implementations, settings, optional workspace port mirror, and when-contexts. The library writes the port file under `~/.config/vscode-mcp/port-files/`.
 
 Ask yourself: Will this and the tests work on Windows too?
 
@@ -11,13 +11,13 @@ Ask yourself: Will this and the tests work on Windows too?
 | Repo | Role |
 |------|------|
 | **vscode-mcp** (this repo) | Socket server, stdio wrapper, Cursor/ECA lifecycle, manifest → MCP tools/resources |
-| [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) | Consumer: REPL tools, Ex wiring, legacy `.calva` mirror / when-contexts |
-| [Joyride](https://github.com/BetterThanTomorrow/joyride) | Consumer: Joyride eval tools, legacy `.joyride` mirror / when-contexts |
+| [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) | Consumer: REPL tools, Ex wiring, optional `.calva` mirror / when-contexts |
+| [Joyride](https://github.com/BetterThanTomorrow/joyride) | Consumer: Joyride eval tools, optional `.joyride` mirror / when-contexts |
 
 **Responsibility split**
 
-- **Library:** start/stop socket, primary port file under `~/.config/vscode-mcp/port-files/`, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert (points at primary), optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
-- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, optional `:lifecycle/eca-port-file-uri+` legacy workspace mirror, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
+- **Library:** start/stop socket, port file under `~/.config/vscode-mcp/port-files/`, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
+- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, optional `:lifecycle/eca-port-file-uri+` for a workspace mirror, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
 
 Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those live in the consumer repos.
 
@@ -60,7 +60,7 @@ No Extension Host here. Integration proof is in consumer Extension Hosts and the
 |-----------|---------|
 | `vscode-mcp.core` | Public lifecycle API (`create-config`, `maybe-start!+`, `start!+`, `stop!+`, …) |
 | `vscode-mcp.lifecycle` | Pure state/config helpers (no VS Code API) |
-| `vscode-mcp.port-file` | Primary `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` path + stale sweep |
+| `vscode-mcp.port-file` | Port file under `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` + stale sweep |
 | `vscode-mcp.server` | TCP MCP socket server + port file I/O |
 | `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main) |
 | `vscode-mcp.manifest` | Copilot package.json → tools/resources/skills |
@@ -167,15 +167,15 @@ Stop → unregister + incremented `:lifecycle/generation` when previously regist
 
 When auto-register is false but Cursor API exists, `maybe-start!+` still sweeps stale Cursor registrations on activate.
 
-## Primary port file
+## Port file
 
-Primary path is always `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` (`vscode-mcp.port-file` / `primary-port-file-path`). Created after listen; deleted on stop; exists iff Running. `maybe-start!+` sweeps that directory on activate: `.port` files whose port is not accepting (or whose content is invalid) are deleted. Override the directory with `:port-file/dir` (tests). Registry `portFilePath` is this primary path. `:lifecycle/port-file-uri+` is unused (legacy consumer callback).
+Path is `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` (`vscode-mcp.port-file` / `primary-port-file-path`). Created after listen; deleted on stop; exists iff Running. `maybe-start!+` sweeps that directory on activate: `.port` files whose port is not accepting (or whose content is invalid) are deleted. Override the directory with `:port-file/dir` (tests). Registry `portFilePath` uses this path. `:lifecycle/port-file-uri+` is unused.
 
 ## ECA registration
 
-Inert until consumer passes `:mcp/auto-register-eca? true`. Gates: ECA extension `editor-code-assistant.eca` installed (activated before write), workspace folder, primary port file from `server-info`.
+Inert until consumer passes `:mcp/auto-register-eca? true`. Gates: ECA extension `editor-code-assistant.eca` installed (activated before write), workspace folder, port file from `server-info`.
 
-Managed ECA configs point at the **primary** port file. Pass `:lifecycle/eca-port-file-uri+` only for a **legacy workspace mirror** (e.g. `.calva/mcp-server/port`, `.joyride/mcp-server/port`) for manual configs. Library writes that mirror on successful start when distinct from primary; deletes it on stop when distinct.
+Managed ECA configs use the library port file. Pass `:lifecycle/eca-port-file-uri+` when you also want a workspace mirror (e.g. `.calva/mcp-server/port`, `.joyride/mcp-server/port`) for manual configs. Library writes that mirror on successful start when distinct from the library path; deletes it on stop when distinct.
 
 Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match.
 
