@@ -96,10 +96,7 @@ Skills from `chatSkills` show up as MCP resources at `skill://{name}/SKILL.md`. 
            :cursor/script-relative-path "dist/mcp-server.js"
            :manual-setup/extension-name "My Extension"
            :mcp/on-request handle-mcp-request
-           :lifecycle/port-file-uri+ (fn [^js ctx {:lifecycle/keys [cursor-mode? instance-slug]}]
-                                       (if cursor-mode?
-                                         (vscode/Uri.file (str "/tmp/my-extension-mcp/" instance-slug "/port"))
-                                         (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port")))
+           ;; Optional workspace mirror for manual configs
            :lifecycle/eca-port-file-uri+ (fn [^js ctx _strategy-opts]
                                            (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port"))
            :lifecycle/request-port (fn [_ctx {:lifecycle/keys [cursor-mode?]}]
