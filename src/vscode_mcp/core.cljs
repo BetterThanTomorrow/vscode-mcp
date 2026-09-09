@@ -1,11 +1,13 @@
 (ns vscode-mcp.core
   (:require
+   ["vscode" :as vscode]
    [promesa.core :as p]
    [vscode-mcp.cursor :as cursor]
    [vscode-mcp.eca :as eca]
    [vscode-mcp.lifecycle :as state]
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
+   [vscode-mcp.port-file :as port-file]
    [vscode-mcp.registry-writer :as registry-writer]
    [vscode-mcp.server :as server]
    [vscode-mcp.server-readiness :as server-readiness]
@@ -21,6 +23,15 @@
                                   (:cursor/script-relative-path config)))
 
 (def create-config state/create-config)
+
+(def primary-port-file-path port-file/primary-path)
+
+(defn primary-port-file-uri
+  "VS Code Uri for the primary port file."
+  ([server-name window-id]
+   (primary-port-file-uri nil server-name window-id))
+  ([config server-name window-id]
+   (vscode/Uri.file (port-file/primary-path config server-name window-id))))
 
 (def update-registry!+ registry-writer/update-registry!+)
 
@@ -63,7 +74,8 @@
         (do (notify! on-cursor-registration-failed result)
             (assoc state :lifecycle/server-info started-server-info))))))
 
-(defn- resolve-eca-port-file-uri
+(defn- resolve-legacy-port-mirror-uri
+  "Legacy workspace mirror path from `:lifecycle/eca-port-file-uri+`, else primary."
   [config started-server-info strategy-opts]
   (let [{:vscode/keys [extension-context]
          :lifecycle/keys [eca-port-file-uri+]} config
@@ -72,18 +84,20 @@
       (eca-port-file-uri+ extension-context strategy-opts)
       primary-uri)))
 
-(defn- ensure-eca-port-file!+
+(defn- ensure-legacy-port-mirror!+
+  "Writes the legacy workspace port mirror when distinct from primary."
   [config started-server-info strategy-opts]
   (let [primary-uri (:server/port-file-uri started-server-info)
-        eca-uri (resolve-eca-port-file-uri config started-server-info strategy-opts)
+        mirror-uri (resolve-legacy-port-mirror-uri config started-server-info strategy-opts)
         assigned-port (:server/assigned-port started-server-info)]
-    (case (state/eca-port-mirror-action primary-uri eca-uri)
+    (case (state/eca-port-mirror-action primary-uri mirror-uri)
       :skip (p/resolved nil)
-      :reuse (p/resolved eca-uri)
-      :mirror (-> (server/write-port-file!+ config eca-uri assigned-port)
-                  (p/then (constantly eca-uri))))))
+      :reuse (p/resolved mirror-uri)
+      :mirror (-> (server/write-port-file!+ config mirror-uri assigned-port)
+                  (p/then (constantly mirror-uri))))))
 
 (defn- maybe-register-eca!+
+  "Registers with ECA using the primary port file (not the legacy mirror)."
   [config started-server-info]
   (let [on-log (:mcp/on-log config)
         allowed? (policy/should-register-with-eca?
@@ -93,15 +107,13 @@
                    :mcp/workspace-root-present? (eca/workspace-root-present?)})]
     (if-not allowed?
       (p/resolved nil)
-      (p/let [eca-uri (or (:server/eca-port-file-uri started-server-info)
-                          (:server/port-file-uri started-server-info))
-              result (eca/register!+
-                       {:cursor/server-name (:cursor/server-name config)
-                        :cursor/script-relative-path (:cursor/script-relative-path config)
-                        :cursor/wrapper-path (resolve-wrapper-path config)
-                        :vscode/extension-context (:vscode/extension-context config)
-                        :server/port-file-uri eca-uri
-                        :server/host (:server/host config)})]
+      (p/let [result (eca/register!+
+                      {:cursor/server-name (:cursor/server-name config)
+                       :cursor/script-relative-path (:cursor/script-relative-path config)
+                       :cursor/wrapper-path (resolve-wrapper-path config)
+                       :vscode/extension-context (:vscode/extension-context config)
+                       :server/port-file-uri (:server/port-file-uri started-server-info)
+                       :server/host (:server/host config)})]
         (when (and (not (:ok result)) on-log)
           (on-log :warn "[MCP] ECA registration failed:" (pr-str result)))
         {:eca/result result}))))
@@ -126,9 +138,9 @@
                     :server/workspace-folder (cursor/current-workspace-root)
                     :server/app-id (cursor/current-app-id))
         on-running-changed (:lifecycle/on-running-changed config)]
-    (p/let [eca-uri (ensure-eca-port-file!+ config info strategy-opts)
+    (p/let [mirror-uri (ensure-legacy-port-mirror!+ config info strategy-opts)
             info' (cond-> info
-                    eca-uri (assoc :server/eca-port-file-uri eca-uri))
+                    mirror-uri (assoc :server/eca-port-file-uri mirror-uri))
             _ (notify! on-running-changed true info')
             state' (if register-allowed?
                      (do-register!+ config state info')
@@ -144,13 +156,13 @@
       (wrapper-install/ensure-installed! config)
       (let [{:vscode/keys [extension-context]
              :mcp/keys [on-request on-log on-error]
+             :cursor/keys [server-name]
              :server/keys [host]
-             :lifecycle/keys [port-file-uri+ request-port
-                              on-starting-changed]} config
+             :lifecycle/keys [request-port on-starting-changed]} config
             instance-slug (cursor/current-instance-slug extension-context)
             strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
                            :lifecycle/instance-slug instance-slug}
-            port-file-uri (when port-file-uri+ (port-file-uri+ extension-context strategy-opts))
+            port-file-uri (primary-port-file-uri config server-name instance-slug)
             request-port-value (when request-port (request-port extension-context strategy-opts))
             register-allowed? (policy/should-register-on-start?
                                {:mcp/auto-register? (:mcp/auto-register? config)
@@ -203,7 +215,8 @@
 (defn maybe-start!+
   [config state silent?]
   (let [{:mcp/keys [auto-start? auto-register? auto-register-eca?]} config]
-    (p/let [_ (when (and (cursor/cursor-mcp-available?) (not auto-register?))
+    (p/let [_ (port-file/sweep-stale!+ (port-file/port-dir config))
+            _ (when (and (cursor/cursor-mcp-available?) (not auto-register?))
                 (sweep-stale-registrations!+ config))]
       (if (or (running? state)
               (policy/should-auto-start? {:mcp/auto-start? auto-start?
