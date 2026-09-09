@@ -169,13 +169,15 @@ When auto-register is false but Cursor API exists, `maybe-start!+` still sweeps 
 
 ## Port file
 
-Path is `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` (`vscode-mcp.port-file` / `primary-port-file-path`). Created after listen; deleted on stop; exists iff Running. `maybe-start!+` sweeps that directory on activate: `.port` files whose port is not accepting (or whose content is invalid) are deleted. Override the directory with `:port-file/dir` (tests). Registry `portFilePath` uses this path. `:lifecycle/port-file-uri+` is unused.
+Path is `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port`. Created after listen; deleted on stop; exists while Running. `maybe-start!+` sweeps that directory on activate: `.port` files whose port is not accepting (or whose content is invalid) are deleted. Override the directory with `:port-file/dir` (tests). Registry `portFilePath` uses this path. `:lifecycle/port-file-uri+` is unused.
 
 ## ECA registration
 
 Inert until consumer passes `:mcp/auto-register-eca? true`. Gates: ECA extension `editor-code-assistant.eca` installed (activated before write), workspace folder, port file from `server-info`.
 
 Managed ECA configs use the library port file. Pass `:lifecycle/eca-port-file-uri+` when you also want a workspace mirror (e.g. `.calva/mcp-server/port`, `.joyride/mcp-server/port`) for manual configs. Library writes that mirror on successful start when distinct from the library path; deletes it on stop when distinct.
+
+**Do not remove the workspace mirror.** It exists only so agents and manual configs keep working; leave `:lifecycle/eca-port-file-uri+` and the mirror write/delete path in place.
 
 Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match.
 
