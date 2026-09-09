@@ -141,6 +141,14 @@
         (invalid-args ctx (or (:msg (ex-data e)) (ex-message e)))
         (throw e)))))
 
+(defonce ^:private process-in *in*)
+
+(defn- process-stdin-tty?
+  "True when *in* is still the process stdin and that stdin is a TTY."
+  []
+  (and (some? (System/console))
+       (identical? *in* process-in)))
+
 (defn gather-stdin
   "Reads a JSON object from stdin when `tools/call` is given `--args -`. Otherwise arguments are `{}`."
   [ctx]
@@ -149,7 +157,7 @@
     (not (and (= "tools/call" (:mcp/verb ctx))
               (= "-" (get-in ctx [:mcp/opts :args]))))
     (assoc ctx :mcp/arguments {})
-    (some? (System/console))
+    (process-stdin-tty?)
     (invalid-args ctx "`--args -` needs JSON on stdin (not a TTY).")
     :else
     (let [raw (string/trim (slurp *in*))]
