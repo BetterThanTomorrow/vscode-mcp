@@ -64,7 +64,7 @@
        (= (.-fsPath primary-uri) (.-fsPath other-uri))))
 
 (defn eca-port-mirror-action
-  "Returns :skip | :reuse | :mirror for primary vs eca port-file URIs (compare fsPath)."
+  "Returns :skip | :reuse | :mirror for library vs workspace port-file URIs (compare fsPath)."
   [primary-uri eca-uri]
   (cond
     (nil? eca-uri) :skip

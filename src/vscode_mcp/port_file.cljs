@@ -1,8 +1,8 @@
 (ns vscode-mcp.port-file
-  "Primary MCP port-file paths under ~/.config/vscode-mcp/port-files.
+  "MCP port file under ~/.config/vscode-mcp/port-files.
 
-   Primary path: <dir>/<serverName>-<windowId>.port
-   Exists iff the socket server is Running (create after listen, delete on stop).
+   Path: <dir>/<serverName>-<windowId>.port
+   Exists while Running (create after listen, delete on stop).
    Stale sweep on activate removes .port files whose port is not accepting."
   (:require
    ["fs" :as fs]
@@ -30,7 +30,7 @@
   (str (registry/entry-name server-name window-id) ".port"))
 
 (defn primary-path
-  "Absolute primary port-file path for `server-name` and `window-id`."
+  "Absolute port-file path for `server-name` and `window-id`."
   ([server-name window-id]
    (primary-path nil server-name window-id))
   ([config server-name window-id]

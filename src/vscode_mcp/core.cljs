@@ -27,7 +27,7 @@
 (def primary-port-file-path port-file/primary-path)
 
 (defn primary-port-file-uri
-  "VS Code Uri for the primary port file."
+  "VS Code Uri for the port file."
   ([server-name window-id]
    (primary-port-file-uri nil server-name window-id))
   ([config server-name window-id]
@@ -75,7 +75,7 @@
             (assoc state :lifecycle/server-info started-server-info))))))
 
 (defn- resolve-legacy-port-mirror-uri
-  "Legacy workspace mirror path from `:lifecycle/eca-port-file-uri+`, else primary."
+  "Workspace mirror path from `:lifecycle/eca-port-file-uri+`, else the library port-file URI."
   [config started-server-info strategy-opts]
   (let [{:vscode/keys [extension-context]
          :lifecycle/keys [eca-port-file-uri+]} config
@@ -85,7 +85,7 @@
       primary-uri)))
 
 (defn- ensure-legacy-port-mirror!+
-  "Writes the legacy workspace port mirror when distinct from primary."
+  "Writes the workspace port mirror when distinct from the library port file."
   [config started-server-info strategy-opts]
   (let [primary-uri (:server/port-file-uri started-server-info)
         mirror-uri (resolve-legacy-port-mirror-uri config started-server-info strategy-opts)
@@ -97,7 +97,7 @@
                   (p/then (constantly mirror-uri))))))
 
 (defn- maybe-register-eca!+
-  "Registers with ECA using the primary port file (not the legacy mirror)."
+  "Registers with ECA using the library port file."
   [config started-server-info]
   (let [on-log (:mcp/on-log config)
         allowed? (policy/should-register-with-eca?
