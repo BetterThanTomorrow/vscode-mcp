@@ -74,7 +74,7 @@ Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-w
   "mcp": {
     "host": "127.0.0.1",
     "port": 1664,
-    "portFilePath": "/Users/pez/.cursor/tmp/calva-mcp-server/ws-1a2b3c/port",
+    "portFilePath": "/Users/pez/.config/vscode-mcp/port-files/calva-backseat-driver-ws-1a2b3c.port",
     "wrapperPath": "/Users/pez/.config/calva/backseat-driver/calva-mcp-server.js"
   }
 }
@@ -84,7 +84,7 @@ Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-w
 - `workspaceRoot` is the path the instance slug hashes: the `.code-workspace` file, or the first folder if there is no workspace file. Omitted when there is no folder.
 - `workspaceFolder` is the first folder path when the window has folders. `bb list` uses it to relativize session `projectRoot` (else the parent of a `.code-workspace` `workspaceRoot`). That directory can differ from `workspaceRoot` in a multi-root window.
 - `hostname` is `os.hostname()` as the OS reports it.
-- `mcp` is present only when the socket has an assigned port. `mcp.host` defaults to `127.0.0.1`. `portFilePath` is the live port file (`:server/port-file-uri`). `wrapperPath` is the installed stdio wrapper.
+- `mcp` is present only when the socket has an assigned port. `mcp.host` defaults to `127.0.0.1`. `portFilePath` is the live port file (`~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port`). `wrapperPath` is the installed stdio wrapper.
 - Consumer keys (for example `sessions`) sit beside the envelope.
 
 An entry is live when its `pid` is running **and** `updatedAt` is younger than 60 seconds.

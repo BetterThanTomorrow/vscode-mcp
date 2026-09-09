@@ -2,7 +2,7 @@
 
 ClojureScript library that turns a VS Code extension’s existing Copilot `languageModelTools` / `chatSkills` into an MCP server (TCP in the Extension Host + stdio wrapper), with Cursor and optional ECA registration.
 
-This repo is **not** an extension. Consumers own tool implementations, settings, port-file strategy, and when-contexts.
+This repo is **not** an extension. Consumers own tool implementations, settings, optional workspace port mirror, and when-contexts. The library writes the port file under `~/.config/vscode-mcp/port-files/`.
 
 Ask yourself: Will this and the tests work on Windows too?
 
@@ -11,36 +11,51 @@ Ask yourself: Will this and the tests work on Windows too?
 | Repo | Role |
 |------|------|
 | **vscode-mcp** (this repo) | Socket server, stdio wrapper, Cursor/ECA lifecycle, manifest → MCP tools/resources |
-| [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) | Consumer: REPL tools, Ex wiring, BD-specific port paths / when-contexts |
-| [Joyride](https://github.com/BetterThanTomorrow/joyride) | Consumer: Joyride eval tools, Joyride-specific port paths / when-contexts |
+| [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) | Consumer: REPL tools, Ex wiring, optional `.calva` mirror / when-contexts |
+| [Joyride](https://github.com/BetterThanTomorrow/joyride) | Consumer: Joyride eval tools, optional `.joyride` mirror / when-contexts |
 
 **Responsibility split**
 
-- **Library:** start/stop socket, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
-- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, workspace-stable ECA port file, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
+- **Library:** start/stop socket, port file under `~/.config/vscode-mcp/port-files/`, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
+- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, optional `:lifecycle/eca-port-file-uri+` for a workspace mirror, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
 
 Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those live in the consumer repos.
 
 ## Co-development with consumers
 
-Backseat Driver and Joyride both pin this library via git SHA, with a commented `:local/root` ready to flip:
+[Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) and [Joyride](https://github.com/BetterThanTomorrow/joyride) share a four-layer co-dev tower. Do not drop or rename an npm script that a VS Code task points at.
+
+1. **Shipped truth** — main `:deps` git pin (`:git/url` + `:git/sha`). Clones and CI resolve without a sibling checkout. Do **not** flip the main dep to `:local/root`.
+2. **Local overlay** — `:local-dev` alias with `:override-deps` to `{:local/root "../vscode-mcp"}`.
+3. **npm scripts** — pin-first: `watch` and `compile` use the git pin; `watch:local` activates `:local-dev`. `compile`, `release`, packaging, and CI do not activate `:local-dev`. Joyride on Windows: `watchwin` / `watchwin:local` (same pin vs local split).
+4. **VS Code tasks** (`.vscode/tasks.json`) — human intent: default **Watch** → `watch:local`; **Watch (pinned vscode-mcp)** → `watch`. Every task `"script"` value must exist in that package's `package.json` `"scripts"`. Day-to-day co-dev uses the **Watch** task, not `npm run watch`.
 
 ```edn
-;; In consumer deps.edn (pattern used by BD and Joyride):
-io.github.betterthantomorrow/vscode-mcp {;:local/root "../vscode-mcp"
-                                         :git/url "https://github.com/BetterThanTomorrow/vscode-mcp.git"
+;; Main dep — always git pin:
+io.github.betterthantomorrow/vscode-mcp {:git/url "https://github.com/BetterThanTomorrow/vscode-mcp.git"
                                          :git/sha "<pinned-sha>"}
+
+;; Alias — local sibling checkout:
+:aliases {:local-dev {:override-deps {io.github.betterthantomorrow/vscode-mcp {:local/root "../vscode-mcp"}}}}
 ```
+
+```bash
+npm run watch              # git pin (VS Code task: Watch (pinned vscode-mcp))
+npm run watch:local        # -M:local-dev (VS Code task: Watch)
+npm run compile            # git pin — CI/package
+```
+
+Joyride keeps `:dev {}` alongside `:local-dev`, uses `-M:dev` / `-M:dev:local-dev`, and has `watchwin` / `watchwin:local` on Windows.
 
 ### Local library work (agent ↔ human)
 
-1. **Agent** enables `:local/root "../vscode-mcp"` in the relevant consumer `deps.edn` (comment out or remove the git coords for that dep while local).
-2. **Agent instructs the human** to restart the consumer’s shadow-cljs watcher task(s). The watcher is usually started by the human as a VS Code/Cursor task — agents often cannot restart it reliably. Do **not** assume a classpath refresh without that restart.
-3. Develop and verify in the consumer Extension Host (F5 / consumer’s own workflow). Library unit tests: `bb test` in this repo.
-4. When the library stint is done: **hand off to the human to commit and push vscode-mcp**. Agents do not push this repo unless explicitly asked.
-5. After push, **human hands back to the agent** (or asks) to restore the git dep and set `:git/sha` to the new commit id in each consumer that should pick it up. Re-comment `:local/root`. Again instruct the human to restart shadow-cljs watchers after the pin change.
+1. **Agent or human** uses the consumer `:local-dev` alias (default **Watch** task → `watch:local`; Joyride on Windows: `watchwin:local`). Use **Watch (pinned vscode-mcp)** / `npm run watch` (Joyride: `watchwin`) on the SHA pin. Other consumer aliases (e.g. Backseat Driver `:e2e-test-joyride` for clojure-lsp / e2e Joyride sources) stay orthogonal — they must not put `:local/root` on vscode-mcp; compose with `:local-dev` only when intentional (`-A:local-dev:e2e-test-joyride`). **Instruct the human** to restart the consumer's shadow-cljs watcher task(s). Agents often cannot restart that task reliably. Do **not** assume a classpath refresh without that restart.
+2. Develop and verify in the consumer Extension Host (F5 / consumer’s own workflow). Library unit tests: `bb test` in this repo.
+3. **Commit vscode-mcp first** (library repo). Agents do **not** push unless explicitly asked.
+4. **Then** set each consumer’s main `:deps` `:git/sha` to that vscode-mcp commit id, and **commit** the consumer (`deps.edn` pin bump, plus any consumer wiring). Do this for Backseat Driver and for Joyride when that consumer should pick up the library. Do not commit the consumer pin before the vscode-mcp commit exists.
+5. **Hand off to the human** with an explicit push order: push **vscode-mcp first**, then **Backseat Driver** (and **Joyride** the same way when it was bumped). Instruct the human to restart consumer watchers after the pin change when they switch off `:local-dev` / verify the pin.
 
-Ship order for library features that need consumer wiring: **library first** (inert until opted in) → pin SHA in consumers → consumer setting + wiring commits.
+Ship order for library features that need consumer wiring: commit the library (inert until opted in), commit the consumer pin and any consumer wiring, then the human pushes the library and then the consumers.
 
 **ECA default:** library `:mcp/auto-register-eca?` defaults to **`false`** so a bare SHA bump stays inert. User-facing default `true` lives in the consumer’s `package.json` setting, wired into `create-config`.
 
@@ -60,7 +75,8 @@ No Extension Host here. Integration proof is in consumer Extension Hosts and the
 |-----------|---------|
 | `vscode-mcp.core` | Public lifecycle API (`create-config`, `maybe-start!+`, `start!+`, `stop!+`, …) |
 | `vscode-mcp.lifecycle` | Pure state/config helpers (no VS Code API) |
-| `vscode-mcp.server` | TCP MCP socket server + port file |
+| `vscode-mcp.port-file` | Port file under `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` + stale sweep |
+| `vscode-mcp.server` | TCP MCP socket server + port file I/O |
 | `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main) |
 | `vscode-mcp.manifest` | Copilot package.json → tools/resources/skills |
 | `vscode-mcp.requests` | `handle-manifest-request` for non-`tools/call` methods |
@@ -164,13 +180,19 @@ Per register: unregister previous → `registerServer` → always `mcp.reloadCli
 
 Stop → unregister + incremented `:lifecycle/generation` when previously registered. Next start uses a new name. TCP probe (5 s) before register; timeout warns and continues.
 
-When auto-register is false but Cursor API exists, `maybe-start!+` still sweeps stale registrations on activate.
+When auto-register is false but Cursor API exists, `maybe-start!+` still sweeps stale Cursor registrations on activate.
+
+## Port file
+
+Path is `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port`. Created after listen; deleted on stop; exists while Running. `maybe-start!+` sweeps that directory on activate: `.port` files whose port is not accepting (or whose content is invalid) are deleted. Override the directory with `:port-file/dir` (tests). Registry `portFilePath` uses this path. `:lifecycle/port-file-uri+` is unused.
 
 ## ECA registration
 
 Inert until consumer passes `:mcp/auto-register-eca? true`. Gates: ECA extension `editor-code-assistant.eca` installed (activated before write), workspace folder, port file from `server-info`.
 
-Pass `:lifecycle/eca-port-file-uri+` for a **workspace-stable** port path (e.g. `.calva/mcp-server/port`, `.joyride/mcp-server/port`). Library always mirrors the listening port there on successful start when distinct from the primary (Cursor often uses tmpdir). Mirror deleted on stop when distinct.
+Managed ECA configs use the library port file. Pass `:lifecycle/eca-port-file-uri+` when you also want a workspace mirror (e.g. `.calva/mcp-server/port`, `.joyride/mcp-server/port`) for manual configs. Library writes that mirror on successful start when distinct from the library path; deletes it on stop when distinct.
+
+**Do not remove the workspace mirror.** It exists only so agents and manual configs keep working; leave `:lifecycle/eca-port-file-uri+` and the mirror write/delete path in place.
 
 Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match.
 
