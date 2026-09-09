@@ -96,9 +96,8 @@ Skills from `chatSkills` show up as MCP resources at `skill://{name}/SKILL.md`. 
            :cursor/script-relative-path "dist/mcp-server.js"
            :manual-setup/extension-name "My Extension"
            :mcp/on-request handle-mcp-request
-           ;; Primary port file is library-owned: ~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port
+           ;; Optional workspace mirror for manual configs
            :lifecycle/eca-port-file-uri+ (fn [^js ctx _strategy-opts]
-                                           ;; Optional legacy workspace mirror for manual configs
                                            (vscode/Uri.joinPath (.-extensionUri ctx) "mcp-port"))
            :lifecycle/request-port (fn [_ctx {:lifecycle/keys [cursor-mode?]}]
                                      (if cursor-mode? 0 (:server/request-port (read-mcp-settings))))
