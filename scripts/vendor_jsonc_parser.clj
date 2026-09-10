@@ -35,6 +35,7 @@
        " * Upstream: https://github.com/microsoft/node-jsonc-parser\n"
        " * License: MIT (Microsoft)\n"
        " * Regenerate: bb vendor-jsonc-parser [--version <ver>]\n"
+       " * Closure-safe: ModificationOptions/FormattingOptions read via bracket access.\n"
        " */\n"))
 
 (defn- resolve-version
@@ -92,22 +93,37 @@
           "--legal-comments=none"
           (str "--outfile=" (str (fs/absolutize out-js)))))
 
+(def ^:private options-api-props
+  ["formattingOptions" "getInsertionIndex" "isArrayInsertion"
+   "tabSize" "insertSpaces" "keepLines" "eol" "insertFinalNewline"])
+
+(defn- closure-safe-options-access
+  "Rewrite options.<prop> to options[\"prop\"] so Closure advanced does not
+  rename public ModificationOptions / FormattingOptions keys at the cljs boundary."
+  [js]
+  (reduce (fn [s prop]
+            (str/replace s (re-pattern (str "\\." prop "\\b")) (str "[\"" prop "\"]")))
+          js
+          options-api-props))
+
 (defn- write-vendored!
   [version bundled-js]
   (fs/create-dirs vendor-dir)
-  (spit outfile (str (banner version) bundled-js))
+  (spit outfile (str (banner version) (closure-safe-options-access bundled-js)))
   (spit version-file (str version "\n")))
 
 (defn- smoke-check!
-  "Sanity-check the bundle exposes parse/modify/applyEdits."
+  "Sanity-check the bundle exposes parse/modify/applyEdits and pretty-prints."
   []
   (let [abs (str (fs/absolutize outfile))
         js (str "import { parse, modify, applyEdits } from 'file://" abs "';\n"
                 "const text = '{ /* c */ \"a\": 1 }';\n"
                 "const obj = parse(text);\n"
                 "if (obj.a !== 1) throw new Error('parse failed');\n"
-                "const edited = applyEdits(text, modify(text, ['a'], 2, {}));\n"
-                "if (parse(edited).a !== 2) throw new Error('modify failed');\n"
+                "const opts = {formattingOptions:{tabSize:2, insertSpaces:true}};\n"
+                "const edited = applyEdits('{}', modify('{}', ['mcpServers','x'], {command:'node'}, opts));\n"
+                "if (!edited.includes('\\n  ')) throw new Error('modify did not pretty-print: ' + edited);\n"
+                "if (parse(edited).mcpServers.x.command !== 'node') throw new Error('modify failed');\n"
                 "console.log('ok');\n")
         result (shell! {} "node" "--input-type=module" "-e" js)]
     (when-not (str/includes? (:out result) "ok")

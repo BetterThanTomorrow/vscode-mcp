@@ -4,6 +4,7 @@
  * Upstream: https://github.com/microsoft/node-jsonc-parser
  * License: MIT (Microsoft)
  * Regenerate: bb vendor-jsonc-parser [--version <ver>]
+ * Closure-safe: ModificationOptions/FormattingOptions read via bracket access.
  */
 // lib/esm/impl/scanner.js
 function createScanner(text, ignoreTrivia = false) {
@@ -489,8 +490,8 @@ function format(documentText, range, options) {
   let numberLineBreaks = 0;
   let indentLevel = 0;
   let indentValue;
-  if (options.insertSpaces) {
-    indentValue = cachedSpaces[options.tabSize || 4] ?? repeat(cachedSpaces[1], options.tabSize || 4);
+  if (options["insertSpaces"]) {
+    indentValue = cachedSpaces[options["tabSize"] || 4] ?? repeat(cachedSpaces[1], options["tabSize"] || 4);
   } else {
     indentValue = "	";
   }
@@ -514,7 +515,7 @@ function format(documentText, range, options) {
     let token = scanner.scan();
     numberLineBreaks = 0;
     while (token === 15 || token === 14) {
-      if (token === 14 && options.keepLines) {
+      if (token === 14 && options["keepLines"]) {
         numberLineBreaks += 1;
       } else if (token === 14) {
         numberLineBreaks = 1;
@@ -531,12 +532,12 @@ function format(documentText, range, options) {
     }
   }
   let firstToken = scanNext();
-  if (options.keepLines && numberLineBreaks > 0) {
+  if (options["keepLines"] && numberLineBreaks > 0) {
     addEdit(repeat(eol, numberLineBreaks), 0, 0);
   }
   if (firstToken !== 17) {
     let firstTokenStart = scanner.getTokenOffset() + formatTextStart;
-    let initialIndent = indentValue.length * initialIndentLevel < 20 && options.insertSpaces ? cachedSpaces[indentValue.length * initialIndentLevel] : repeat(indentValue, initialIndentLevel);
+    let initialIndent = indentValue.length * initialIndentLevel < 20 && options["insertSpaces"] ? cachedSpaces[indentValue.length * initialIndentLevel] : repeat(indentValue, initialIndentLevel);
     addEdit(initialIndent, formatTextStart, firstTokenStart);
   }
   while (firstToken !== 17) {
@@ -557,9 +558,9 @@ function format(documentText, range, options) {
         indentLevel--;
       }
       ;
-      if (options.keepLines && numberLineBreaks > 0 || !options.keepLines && firstToken !== 1) {
+      if (options["keepLines"] && numberLineBreaks > 0 || !options["keepLines"] && firstToken !== 1) {
         replaceContent = newLinesAndIndent();
-      } else if (options.keepLines) {
+      } else if (options["keepLines"]) {
         replaceContent = cachedSpaces[1];
       }
     } else if (secondToken === 4) {
@@ -567,9 +568,9 @@ function format(documentText, range, options) {
         indentLevel--;
       }
       ;
-      if (options.keepLines && numberLineBreaks > 0 || !options.keepLines && firstToken !== 3) {
+      if (options["keepLines"] && numberLineBreaks > 0 || !options["keepLines"] && firstToken !== 3) {
         replaceContent = newLinesAndIndent();
-      } else if (options.keepLines) {
+      } else if (options["keepLines"]) {
         replaceContent = cachedSpaces[1];
       }
     } else {
@@ -577,14 +578,14 @@ function format(documentText, range, options) {
         case 3:
         case 1:
           indentLevel++;
-          if (options.keepLines && numberLineBreaks > 0 || !options.keepLines) {
+          if (options["keepLines"] && numberLineBreaks > 0 || !options["keepLines"]) {
             replaceContent = newLinesAndIndent();
           } else {
             replaceContent = cachedSpaces[1];
           }
           break;
         case 5:
-          if (options.keepLines && numberLineBreaks > 0 || !options.keepLines) {
+          if (options["keepLines"] && numberLineBreaks > 0 || !options["keepLines"]) {
             replaceContent = newLinesAndIndent();
           } else {
             replaceContent = cachedSpaces[1];
@@ -601,14 +602,14 @@ function format(documentText, range, options) {
           }
           break;
         case 6:
-          if (options.keepLines && numberLineBreaks > 0) {
+          if (options["keepLines"] && numberLineBreaks > 0) {
             replaceContent = newLinesAndIndent();
           } else if (!needsLineBreak) {
             replaceContent = cachedSpaces[1];
           }
           break;
         case 10:
-          if (options.keepLines && numberLineBreaks > 0) {
+          if (options["keepLines"] && numberLineBreaks > 0) {
             replaceContent = newLinesAndIndent();
           } else if (secondToken === 6 && !needsLineBreak) {
             replaceContent = "";
@@ -620,7 +621,7 @@ function format(documentText, range, options) {
         case 11:
         case 2:
         case 4:
-          if (options.keepLines && numberLineBreaks > 0) {
+          if (options["keepLines"] && numberLineBreaks > 0) {
             replaceContent = newLinesAndIndent();
           } else {
             if ((secondToken === 12 || secondToken === 13) && !needsLineBreak) {
@@ -639,10 +640,10 @@ function format(documentText, range, options) {
       }
     }
     if (secondToken === 17) {
-      if (options.keepLines && numberLineBreaks > 0) {
+      if (options["keepLines"] && numberLineBreaks > 0) {
         replaceContent = newLinesAndIndent();
       } else {
-        replaceContent = options.insertFinalNewline ? eol : "";
+        replaceContent = options["insertFinalNewline"] ? eol : "";
       }
     }
     const secondTokenStart = scanner.getTokenOffset() + formatTextStart;
@@ -661,7 +662,7 @@ function repeat(s, count) {
 function computeIndentLevel(content, options) {
   let i = 0;
   let nChars = 0;
-  const tabSize = options.tabSize || 4;
+  const tabSize = options["tabSize"] || 4;
   while (i < content.length) {
     let ch = content.charAt(i);
     if (ch === cachedSpaces[1]) {
@@ -687,7 +688,7 @@ function getEOL(options, text) {
       return "\n";
     }
   }
-  return options && options.eol || "\n";
+  return options && options["eol"] || "\n";
 }
 function isEOL(text, offset) {
   return "\r\n".indexOf(text.charAt(offset)) !== -1;
@@ -1401,7 +1402,7 @@ function setProperty(text, originalPath, value, options) {
         return [];
       }
       const newProperty = `${JSON.stringify(lastSegment)}: ${JSON.stringify(value)}`;
-      const index = options.getInsertionIndex ? options.getInsertionIndex(parent.children.map((p) => p.children[0].value)) : parent.children.length;
+      const index = options["getInsertionIndex"] ? options["getInsertionIndex"](parent.children.map((p) => p.children[0].value)) : parent.children.length;
       let edit;
       if (index > 0) {
         let previous = parent.children[index - 1];
@@ -1443,7 +1444,7 @@ function setProperty(text, originalPath, value, options) {
     } else if (value !== void 0) {
       let edit;
       const newProperty = `${JSON.stringify(value)}`;
-      if (!options.isArrayInsertion && parent.children.length > lastSegment) {
+      if (!options["isArrayInsertion"] && parent.children.length > lastSegment) {
         const toModify = parent.children[lastSegment];
         edit = { offset: toModify.offset, length: toModify.length, content: newProperty };
       } else if (parent.children.length === 0 || lastSegment === 0) {
@@ -1455,14 +1456,14 @@ function setProperty(text, originalPath, value, options) {
       }
       return withFormatting(text, edit, options);
     } else {
-      throw new Error(`Can not ${value === void 0 ? "remove" : options.isArrayInsertion ? "insert" : "modify"} Array index ${insertIndex} as length is not sufficient`);
+      throw new Error(`Can not ${value === void 0 ? "remove" : options["isArrayInsertion"] ? "insert" : "modify"} Array index ${insertIndex} as length is not sufficient`);
     }
   } else {
     throw new Error(`Can not add ${typeof lastSegment !== "number" ? "index" : "property"} to parent of type ${parent.type}`);
   }
 }
 function withFormatting(text, edit, options) {
-  if (!options.formattingOptions) {
+  if (!options["formattingOptions"]) {
     return [edit];
   }
   let newText = applyEdit(text, edit);
@@ -1476,7 +1477,7 @@ function withFormatting(text, edit, options) {
       end++;
     }
   }
-  const edits = format(newText, { offset: begin, length: end - begin }, { ...options.formattingOptions, keepLines: false });
+  const edits = format(newText, { offset: begin, length: end - begin }, { ...options["formattingOptions"], keepLines: false });
   for (let i = edits.length - 1; i >= 0; i--) {
     const edit2 = edits[i];
     newText = applyEdit(newText, edit2);

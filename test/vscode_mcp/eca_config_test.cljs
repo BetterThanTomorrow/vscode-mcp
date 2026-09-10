@@ -122,3 +122,21 @@
               ".calva/mcp-server/port"
               "127.0.0.1"]
              (get entry "args"))))))
+
+(deftest plan-pretty-prints-owned-entry-test
+  (testing "blank → write with indent depth 2"
+    (let [plan (sut/plan-config-text nil "joyride" desired)
+          text (:eca/text plan)]
+      (is (= :write (:eca/action plan)))
+      (is (str/includes? text "\n  \"mcpServers\""))
+      (is (str/includes? text "\n      \"command\": \"node\""))))
+
+  (testing "existing 4-space file matches indent on write"
+    (let [four-space (str "{\n"
+                          "    \"$schema\": \"https://eca.dev/config.json\"\n"
+                          "}\n")
+          plan (sut/plan-config-text four-space "joyride" desired)
+          text (:eca/text plan)]
+      (is (= :write (:eca/action plan)))
+      (is (str/includes? text "\n    \"mcpServers\""))
+      (is (str/includes? text "\n            \"command\": \"node\"")))))
