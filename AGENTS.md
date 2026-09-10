@@ -45,7 +45,7 @@ npm run watch:local        # -M:local-dev (VS Code task: Watch)
 npm run compile            # git pin — CI/package
 ```
 
-Joyride keeps `:dev {}` alongside `:local-dev`, uses `-M:dev` / `-M:dev:local-dev`, and has `watchwin` / `watchwin:local` on Windows.
+Joyride also has `watchwin` / `watchwin:local` on Windows (same pin vs local split).
 
 ### Local library work (agent ↔ human)
 
