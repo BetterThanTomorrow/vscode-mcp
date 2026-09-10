@@ -69,3 +69,33 @@
           current (get-in (sut/parse-clj configured) [:mcpServers :joyride])]
       (is (= joyride-entry current)
           "compare desired vs current before writing"))))
+
+(deftest assoc-in-text-pretty-prints-owned-slice-test
+  (testing "create-from-scratch uses indent depth 2"
+    (let [next (sut/assoc-in-text nil ["mcpServers" "joyride"] joyride-entry)]
+      (is (str/includes? next "\n  \"mcpServers\""))
+      (is (str/includes? next "\n    \"joyride\""))
+      (is (str/includes? next "\n      \"command\": \"node\""))
+      (is (str/includes? next "\n        \"/ext/dist/joyride-mcp-server.js\""))
+      (is (not (str/includes? next "\"joyride\":{"))
+          "owned entry is not a compact one-liner")))
+
+  (testing "existing 4-space file: owned slice matches indent depth"
+    (let [four-space (str "{\n"
+                          "    \"$schema\": \"https://eca.dev/config.json\",\n"
+                          "    \"providers\": {\n"
+                          "        \"openrouter\": {\"key\": \"secret\"}\n"
+                          "    }\n"
+                          "}\n")
+          next (sut/assoc-in-text four-space ["mcpServers" "joyride"] joyride-entry)]
+      (is (str/includes? next "\n    \"mcpServers\""))
+      (is (str/includes? next "\n        \"joyride\""))
+      (is (str/includes? next "\n            \"command\": \"node\""))
+      (is (str/includes? next "\"openrouter\": {\"key\": \"secret\"}")
+          "sibling compact value left untouched")))
+
+  (testing "comments and siblings survive pretty owned write"
+    (let [next (sut/assoc-in-text sample-jsonc ["mcpServers" "joyride"] joyride-entry)]
+      (is (str/includes? next "// keep me"))
+      (is (str/includes? next "\n  \"mcpServers\""))
+      (is (= "secret" (get-in (sut/parse-clj next) [:providers :openrouter :key]))))))
