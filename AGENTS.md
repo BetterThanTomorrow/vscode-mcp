@@ -2,7 +2,7 @@
 
 ClojureScript library that turns a VS Code extension’s existing Copilot `languageModelTools` / `chatSkills` into an MCP server (TCP in the Extension Host + stdio wrapper), with Cursor and optional ECA registration.
 
-This repo is **not** an extension. Consumers own tool implementations, settings, optional workspace port mirror, and when-contexts. The library writes the port file under `~/.config/vscode-mcp/port-files/`.
+This repo is **not** an extension. Consumers own tool implementations, settings, and when-contexts. The library writes the port file under `~/.config/vscode-mcp/port-files/`.
 
 Ask yourself: Will this and the tests work on Windows too?
 
@@ -11,13 +11,13 @@ Ask yourself: Will this and the tests work on Windows too?
 | Repo | Role |
 |------|------|
 | **vscode-mcp** (this repo) | Socket server, stdio wrapper, Cursor/ECA lifecycle, manifest → MCP tools/resources |
-| [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) | Consumer: REPL tools, Ex wiring, optional `.calva` mirror / when-contexts |
-| [Joyride](https://github.com/BetterThanTomorrow/joyride) | Consumer: Joyride eval tools, optional `.joyride` mirror / when-contexts |
+| [Calva Backseat Driver](https://github.com/BetterThanTomorrow/calva-backseat-driver) | Consumer: REPL tools, Ex wiring, when-contexts |
+| [Joyride](https://github.com/BetterThanTomorrow/joyride) | Consumer: Joyride eval tools, when-contexts |
 
 **Responsibility split**
 
 - **Library:** start/stop socket, port file under `~/.config/vscode-mcp/port-files/`, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
-- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, optional `:lifecycle/eca-port-file-uri+` for a workspace mirror, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
+- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
 
 Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those live in the consumer repos.
 
@@ -190,9 +190,7 @@ Path is `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port`. Created 
 
 Inert until consumer passes `:mcp/auto-register-eca? true`. Gates: ECA extension `editor-code-assistant.eca` installed (activated before write), workspace folder, port file from `server-info`.
 
-Managed ECA configs use the library port file. Pass `:lifecycle/eca-port-file-uri+` when you also want a workspace mirror (e.g. `.calva/mcp-server/port`, `.joyride/mcp-server/port`) for manual configs. Library writes that mirror on successful start when distinct from the library path; deletes it on stop when distinct.
-
-**Do not remove the workspace mirror.** It exists only so agents and manual configs keep working; leave `:lifecycle/eca-port-file-uri+` and the mirror write/delete path in place.
+Managed ECA configs use the library port file under `~/.config/vscode-mcp/port-files/`. The library does not write a workspace mirror (no `.calva` / `.joyride` MCP port file). Discovery for agents is the window registry; manual stdio configs point at the library port file path.
 
 Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match.
 
