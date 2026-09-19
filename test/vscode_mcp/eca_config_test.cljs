@@ -109,17 +109,17 @@
       (is (= (:eca/text once) (:eca/text twice))))))
 
 (deftest desired-entry-portable-wiring-test
-  (testing "composes home-env-path + workspace-relative-path like eca/register!+"
+  (testing "composes home-env-path for wrapper and port like eca/register!+"
     (let [entry (sut/desired-entry
                  (sut/home-env-path
                   "/Users/test/.config/calva/backseat-driver/calva-mcp-server.js"
                   "/Users/test")
-                 (sut/workspace-relative-path
-                  "/ws/project/.calva/mcp-server/port"
-                  "/ws/project")
+                 (sut/home-env-path
+                  "/Users/test/.config/vscode-mcp/port-files/calva-backseat-driver-ws-abc.port"
+                  "/Users/test")
                  "127.0.0.1")]
       (is (= ["${env:HOME}/.config/calva/backseat-driver/calva-mcp-server.js"
-              ".calva/mcp-server/port"
+              "${env:HOME}/.config/vscode-mcp/port-files/calva-backseat-driver-ws-abc.port"
               "127.0.0.1"]
              (get entry "args"))))))
 
