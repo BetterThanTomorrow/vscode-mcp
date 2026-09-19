@@ -74,28 +74,6 @@
         (do (notify! on-cursor-registration-failed result)
             (assoc state :lifecycle/server-info started-server-info))))))
 
-(defn- resolve-legacy-port-mirror-uri
-  "Workspace mirror path from `:lifecycle/eca-port-file-uri+`, else the library port-file URI."
-  [config started-server-info strategy-opts]
-  (let [{:vscode/keys [extension-context]
-         :lifecycle/keys [eca-port-file-uri+]} config
-        primary-uri (:server/port-file-uri started-server-info)]
-    (if eca-port-file-uri+
-      (eca-port-file-uri+ extension-context strategy-opts)
-      primary-uri)))
-
-(defn- ensure-legacy-port-mirror!+
-  "Writes the workspace port mirror when distinct from the library port file."
-  [config started-server-info strategy-opts]
-  (let [primary-uri (:server/port-file-uri started-server-info)
-        mirror-uri (resolve-legacy-port-mirror-uri config started-server-info strategy-opts)
-        assigned-port (:server/assigned-port started-server-info)]
-    (case (state/eca-port-mirror-action primary-uri mirror-uri)
-      :skip (p/resolved nil)
-      :reuse (p/resolved mirror-uri)
-      :mirror (-> (server/write-port-file!+ config mirror-uri assigned-port)
-                  (p/then (constantly mirror-uri))))))
-
 (defn- maybe-register-eca!+
   "Registers with ECA using the library port file."
   [config started-server-info]
@@ -138,14 +116,11 @@
                     :server/workspace-folder (cursor/current-workspace-root)
                     :server/app-id (cursor/current-app-id))
         on-running-changed (:lifecycle/on-running-changed config)]
-    (p/let [mirror-uri (ensure-legacy-port-mirror!+ config info strategy-opts)
-            info' (cond-> info
-                    mirror-uri (assoc :server/eca-port-file-uri mirror-uri))
-            _ (notify! on-running-changed true info')
+    (p/let [_ (notify! on-running-changed true info)
             state' (if register-allowed?
-                     (do-register!+ config state info')
-                     (assoc state :lifecycle/server-info info'))
-            _ (maybe-register-eca!+ config info')]
+                     (do-register!+ config state info)
+                     (assoc state :lifecycle/server-info info))
+            _ (maybe-register-eca!+ config info)]
       state')))
 
 (defn- start-flow!+
@@ -258,16 +233,11 @@
              :mcp/keys [on-log]
              :lifecycle/keys [on-running-changed on-stopping-changed]} config
             info (server-info state)
-            primary-uri (:server/port-file-uri info)
-            eca-uri (:server/eca-port-file-uri info)
             registered (:lifecycle/registered-name state)
             generation (:lifecycle/generation state 0)]
         (registry-writer/on-stopping! config)
         (notify! on-stopping-changed true)
         (-> (server/stop-server!+ (assoc info :mcp/on-log on-log))
-            (p/then (fn [_]
-                      (when (= :mirror (state/eca-port-mirror-action primary-uri eca-uri))
-                        (server/delete-port-file!+ {:mcp/on-log on-log} eca-uri))))
             (p/then (fn [_]
                       (when registered
                         (p/let [_ (cursor/unregister-by-name!+ registered)
