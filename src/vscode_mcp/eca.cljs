@@ -66,7 +66,7 @@
                                          :cursor/script-relative-path script-relative-path}))
                   portable-wrapper (eca-config/home-env-path resolved-wrapper (os/homedir))
                   port-abs (some-> port-file-uri (unchecked-get "fsPath"))
-                  portable-port (eca-config/workspace-relative-path port-abs (.-fsPath root-uri))
+                  portable-port (eca-config/workspace-relative-path port-abs (unchecked-get root-uri "fsPath"))
                   desired (eca-config/desired-entry portable-wrapper portable-port host)
                   plan (eca-config/plan-config-text text server-name desired)]
             (if (= :no-op (:eca/action plan))
