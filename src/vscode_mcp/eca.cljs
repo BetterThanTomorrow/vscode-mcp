@@ -42,8 +42,8 @@
    Never throws past the promise boundary. Activates the ECA extension before
    any read/write. Server key is `:cursor/server-name` (base name, not the
    generation-suffixed Cursor name). Writes portable args when possible: wrapper
-   under `$HOME` as `${env:HOME}/...` (prefers optional `:cursor/wrapper-path`,
-   e.g. consumer `~/.config/...` copy), port under workspace root as relative."
+   and port under `$HOME` as `${env:HOME}/...` (wrapper prefers optional
+   `:cursor/wrapper-path`, e.g. consumer `~/.config/...` copy)."
   [{:cursor/keys [server-name script-relative-path wrapper-path]
     :vscode/keys [extension-context]
     :server/keys [port-file-uri host]}]
@@ -66,7 +66,7 @@
                                          :cursor/script-relative-path script-relative-path}))
                   portable-wrapper (eca-config/home-env-path resolved-wrapper (os/homedir))
                   port-abs (some-> port-file-uri (unchecked-get "fsPath"))
-                  portable-port (eca-config/workspace-relative-path port-abs (unchecked-get root-uri "fsPath"))
+                  portable-port (eca-config/home-env-path port-abs (os/homedir))
                   desired (eca-config/desired-entry portable-wrapper portable-port host)
                   plan (eca-config/plan-config-text text server-name desired)]
             (if (= :no-op (:eca/action plan))
