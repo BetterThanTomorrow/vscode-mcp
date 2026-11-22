@@ -101,7 +101,8 @@
   "What identifies the caller's window. Under an extension host, which VS Code marks
    in the environment it passes down, the extension host is the nearest ancestor whose
    parent is VS Code's main process, `VSCODE_PID`. Otherwise it is the window
-   `VSCODE_MCP_WINDOW_ID` names."
+   `VSCODE_MCP_WINDOW_ID` names. `ancestry` may be a delay, forced only under an
+   extension host."
   [ancestry env]
   (if (= "extensionHost" (get env "VSCODE_CRASH_REPORTER_PROCESS_TYPE"))
     (let [vscode-pid (some-> (get env "VSCODE_PID") parse-long)]
@@ -109,7 +110,7 @@
        :caller/extension-host-pid (when vscode-pid
                                     (some (fn [[pid ppid]]
                                             (when (= vscode-pid ppid) pid))
-                                          ancestry))})
+                                          (force ancestry)))})
     {:caller/env-window-id (get env registry/window-id-env)}))
 
 (defn caller-window-id
@@ -209,5 +210,5 @@
 (defn current-caller-search
   "`caller-search` for this process."
   []
-  (caller-search (ancestry (read-process-table) js/process.pid)
+  (caller-search (delay (ancestry (read-process-table) js/process.pid))
                  (into {} (map vec) (js/Object.entries (.-env js/process)))))

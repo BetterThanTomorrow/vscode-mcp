@@ -61,7 +61,14 @@
       "Without VSCODE_PID, the top of the ancestry is no extension host")
   (is (= {:caller/env-window-id "ws-b"}
          (sut/caller-search [[50 1]] {"VSCODE_MCP_WINDOW_ID" "ws-b"}))
-      "In a terminal, the variable names the window"))
+      "In a terminal, the variable names the window")
+  (is (= {:caller/env-window-id "ws-b"}
+         (sut/caller-search (delay (throw (js/Error. "The process table was read")))
+                            {"VSCODE_MCP_WINDOW_ID" "ws-b"}))
+      "In a terminal the process table isn't read")
+  (is (= 38 (:caller/extension-host-pid
+             (sut/caller-search (delay [[50 38] [38 100]]) ext-host-env)))
+      "Under an extension host it is"))
 
 (def entries
   [{:serverName "joyride" :windowId "ws-a" :pid 38
