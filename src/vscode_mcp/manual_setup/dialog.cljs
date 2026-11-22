@@ -18,11 +18,11 @@
   ([wrapper-path server-info] (show-manual-start-dialog!+ wrapper-path server-info nil))
   ([wrapper-path server-info opts]
    (let [message (manual-setup/format-start-message server-info opts)
-         {:manual-setup/keys [port port-file]} (manual-setup/copy-command-strings wrapper-path server-info)]
-     (p/let [button (vscode/window.showInformationMessage message "Copy command")]
+         {:manual-setup/keys [caller-window port-file]} (manual-setup/copy-command-strings wrapper-path server-info)]
+     (p/let [button (vscode/window.showInformationMessage message "This window" "External")]
        (case button
-         "Copy command"
-         (vscode/env.clipboard.writeText port-file)
+         "This window" (vscode/env.clipboard.writeText caller-window)
+         "External" (vscode/env.clipboard.writeText port-file)
          nil)))))
 
 (defn show-stopped-message!+
