@@ -2,7 +2,7 @@
 
 An MCP client of sort. Use when a harness MCP connector can't reach the VS Code machine.
 
-From the registry home directory run one command against a live window and parse one JSON object on stdout. Copy `serverName` and `windowId` from `bb list`. (For discovery, the list header also shows `appId` and the hashed location.)
+From the registry home directory run one command against a live window and parse one JSON object on stdout. Copy `serverName` from `bb list`. Inside a VS Code window, or in one of its terminals, leave out `--window-id` and `bb mcp` reaches the window you run in. To reach another window, or from outside every window, copy its `windowId` from `bb list --all`. (For discovery, the list header also shows `appId` and the hashed location.)
 
 First command is `--readme`. Then `--readme-tool` for one tool. Then work verbs: `resources/read`, `tools/call`.
 
@@ -12,7 +12,7 @@ bb mcp --hreadme --server-name calva-backseat-driver --window-id <windowId>
 bb mcp --readme-tool clojure_evaluate_code --server-name calva-backseat-driver --window-id <windowId>
 ```
 
-`--readme`, `--hreadme`, and `--readme-tool` are flags on `bb mcp`. They cannot be combined with each other or with a method verb. `--server-name` / `--window-id` are still required.
+`--readme`, `--hreadme`, and `--readme-tool` are flags on `bb mcp`. They cannot be combined with each other or with a method verb. `--server-name` is still required, and `--window-id` when you aren't in the window you want.
 
 `--readme` briefs the server in one `result`: `serverInfo`, `instructions`, `description`, published skills (name, URI, description — not bodies), and tools as `name` + `userDescription`. Then read relevant skills with `resources/read`, and inspect a tool with `--readme-tool`.
 
@@ -55,7 +55,7 @@ bb mcp resources/read --server-name calva-backseat-driver --window-id <windowId>
 | Flag | Used by | Meaning |
 | --- | --- | --- |
 | `--server-name` | all | `serverName` from `bb list` |
-| `--window-id` | all | `windowId` from `bb list` |
+| `--window-id` | all | `windowId` from `bb list`. Leave it out for the window you run in |
 | `--readme` | first job | Server briefing (skills + tool names) |
 | `--readme-tool` | first job | One tool's `name`, `description`, `inputSchema` |
 | `--name` | `tools/call` | Tool name |
@@ -89,6 +89,7 @@ Failure (nonzero exit):
 | `code` | When |
 | --- | --- |
 | `invalid-args` | Missing/unknown method, missing flags, `--readme` combined with a verb or `--readme-tool`, `--args -` without a JSON object on stdin |
+| `no-window` | `--window-id` left out, and the window you run in wasn't found. The message lists the live windows for `--server-name` |
 | `unknown-id` | No listing with that `serverName` + `windowId` |
 | `window-gone` | Listing exists but is not live, has no MCP address, or TCP connect fails |
 | `unknown-tool` | `--readme-tool` name not in `tools/list`, or JSON-RPC `-32601` on `tools/call` |

@@ -15,7 +15,7 @@
 
 (def cli-opts
   {:spec {:server-name {:desc "serverName from `bb list`"}
-          :window-id {:desc "windowId from `bb list`"}
+          :window-id {:desc "windowId from `bb list`. Leave it out for the caller's own window"}
           :name {:desc "Tool name (`tools/call`)"}
           :uri {:desc "Resource URI (`resources/read`)"}
           :args {:desc "Tool arguments: `-` reads JSON from stdin"}
@@ -108,8 +108,8 @@
         verb (:mcp/verb ctx)
         job (readme-job opts)]
     (cond
-      (not (and (:server-name opts) (:window-id opts)))
-      "Required: --server-name and --window-id (copy from `bb list`)."
+      (not (:server-name opts))
+      "Required: --server-name (copy from `bb list`)."
       (missing-readme-tool-name? opts job)
       "--readme-tool needs a tool name."
       (and (= "tools/call" verb) (not (:name opts)))
@@ -172,14 +172,50 @@
             (invalid-args ctx "`--args -` needs a JSON object on stdin.")))))))
 
 (defn- entry-match?
-  [entry opts]
+  "The entry for `--server-name` and `--window-id`, and for `caller-pid` when the caller's
+   window was found by its extension host: another window on the same workspace shares the windowId."
+  [entry opts caller-pid]
   (and (= (:serverName entry) (:server-name opts))
-       (= (:windowId entry) (:window-id opts))))
+       (= (:windowId entry) (:window-id opts))
+       (or (nil? caller-pid)
+           (= caller-pid (:pid entry)))))
 
 (defn- mcp-ready?
   [entry]
   (and (get-in entry [:mcp :host])
        (get-in entry [:mcp :port])))
+
+(defn- window-line
+  [{:keys [serverName windowId workspaceRoot]}]
+  (string/join "  " [serverName windowId (or workspaceRoot "no folder")]))
+
+(defn- no-window-message
+  [search live]
+  (str "No --window-id, and the caller's window wasn't found. Looked for "
+       (listing/caller-search-text search)
+       ". Pass --window-id. Live windows:\n"
+       (if (seq live)
+         (string/join "\n" (map window-line live))
+         "none")))
+
+(defn find-caller-window
+  "Fills `--window-id` with the caller's window when it is left out, or fails with `no-window`.
+   `:mcp/search` on ctx stands in for the process's own `listing/current-caller-search`."
+  [ctx]
+  (if (or (:mcp/error ctx) (get-in ctx [:mcp/opts :window-id]))
+    ctx
+    (let [{:keys [server-name] :as opts} (:mcp/opts ctx)
+          entries (listing/read-entries (listing/windows-dir opts) false)
+          search (or (:mcp/search ctx) (listing/current-caller-search))]
+      (if-let [window-id (listing/caller-window-id entries search)]
+        (-> ctx
+            (assoc-in [:mcp/opts :window-id] window-id)
+            (assoc :mcp/caller-window-id window-id
+                   :mcp/caller-pid (:caller/extension-host-pid search)))
+        (fail ctx "no-window"
+              (no-window-message search
+                                 (->> (listing/snapshots entries)
+                                      (filter #(= server-name (:serverName %))))))))))
 
 (defn resolve-window
   "Finds the live entry for `--server-name` and `--window-id`. Missing is `unknown-id`; stale or no MCP address is `window-gone`."
@@ -190,11 +226,14 @@
           match (->> (listing/entry-paths dir)
                      (keep listing/read-entry)
                      (some (fn [entry]
-                             (when (entry-match? entry (:mcp/opts ctx))
+                             (when (entry-match? entry (:mcp/opts ctx) (:mcp/caller-pid ctx))
                                entry))))]
       (cond
         (nil? match)
-        (fail ctx "unknown-id" "No listing for that --server-name and --window-id. Run `bb list` again.")
+        (fail ctx "unknown-id"
+              (if-let [window-id (:mcp/caller-window-id ctx)]
+                (str "The caller's window, " window-id ", has no live listing for that --server-name. Run `bb list` again.")
+                "No listing for that --server-name and --window-id. Run `bb list` again."))
         (not (listing/live? match))
         (fail ctx "window-gone" "That window is gone. Run `bb list` again.")
         (not (mcp-ready? match))
@@ -508,7 +547,7 @@
       (:mcp/plain-text parsed) parsed
       (get-in parsed [:mcp/opts :help]) parsed
       :else
-      (let [prepared (-> parsed gather-stdin resolve-window)]
+      (let [prepared (-> parsed gather-stdin find-caller-window resolve-window)]
         (if (:mcp/error prepared)
           prepared
           (case (readme-job (:mcp/opts prepared))

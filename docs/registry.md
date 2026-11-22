@@ -113,7 +113,9 @@ On MCP start: wait 10 minutes, then delete any file in that window’s dir whose
 
 `bb list` (installed under registry home) reads `windows/*.json` and prints discovery plus attach. Prefer it strongly enough that a missing `bb` gets installed ([Babashka](https://github.com/babashka/babashka#installation)) rather than skipping straight to the JSON files. Reading the entries is valid; they are what the lister parses.
 
-Default: live entries only. `--stale` includes the rest. `--json` and `--edn` print the same snapshot as maps. Stdout only.
+Default: live entries only. `--stale` includes the rest. `--json` and `--edn` print the same snapshot as maps, on stdout.
+
+Run inside a window, `bb list` lists only the caller's window, with an `mcp:` line that names no port file, and `mcp` in `--json` and `--edn` holds only `wrapperPath`. It ends with a line on how many other live windows there are. `--all` lists every live window. With `--json` and `--edn` that line goes to stderr, so the printed data keeps its shape. Outside every window, `bb list` lists every live window. The caller's window is found as described under The caller's window.
 
 Text example (Backseat Driver `sessions` pretty-printed; other providers' custom keys print too):
 
@@ -126,13 +128,15 @@ calva-backseat-driver  ws-xf11vn  cursor  /Users/pez/Projects/backseat-driver/te
     cljs    .  :app #8 "Chrome",  :tui #10 "Node"
 ```
 
+That is the listing with `--all`, or outside every window. In the caller's window, the `mcp:` line is `node ~/.config/calva/backseat-driver/calva-mcp-server.js`, the command for a config that reaches the window its client runs in.
+
 First line: `serverName`, `windowId`, `appId`, `workspaceRoot` (absolute hashed location; text `no folder` when omitted). Session `projectRootDisplay` is relative to `workspaceFolder` (first folder), or the parent of a `.code-workspace` `workspaceRoot`.
 
 Use the list to pick the relevant server. The listing contains `appId` (editor CLI slug), `workspaceRoot` (workspace file or folder; text `no folder` when empty), and other, provider-dependent information needed for discovery and connect.
 
 Then attach: `node <wrapperPath> <portFilePath> <host>`, or write the client's MCP config from those fields. After attach, query MCP for live details. Entry discovery can lag; MCP is current.
 
-If the agent cannot hold a normal MCP session, `bb mcp` is the no-session path: one JSON envelope on stdout. First command is `--readme` (server briefing); then `--readme-tool <name>`; then `resources/read` / `tools/call`. Recipe: installed `bb-mcp.md`. Copy `serverName` and `windowId` from `bb list`.
+If the agent cannot hold a normal MCP session, `bb mcp` is the no-session path: one JSON envelope on stdout. First command is `--readme` (server briefing); then `--readme-tool <name>`; then `resources/read` / `tools/call`. Recipe: installed `bb-mcp.md`. Copy `serverName` from `bb list`. Without `--window-id`, `bb mcp` uses the caller's window, and fails with `no-window` when there is none. With `--window-id`, it uses that window.
 
 Stock MCP `tools/list` stays `name` / `description` (`modelDescription`) / `inputSchema`. An optional request arg `includeUserDescription` adds `userDescription` from package.json `languageModelTools`. Only `bb mcp --readme` sends that arg.
 
@@ -152,6 +156,17 @@ The installed `AGENTS.md` is the attach recipe. It says:
 8. If you cannot hold a session, read `bb-mcp.md` and use `bb mcp`. First command is `--readme`.
 
 Pez authors `README.md`. Pez authors `AGENTS.md` to match this recipe.
+
+## The caller's window
+
+`bb list` and `bb mcp` find the window the caller runs in from the live entries:
+
+1. **Under an extension host.** VS Code puts `VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost` and `VSCODE_PID`, the app's main process, in the Extension Host's environment, and the processes it starts inherit them, such as the Claude Code extension and its shells. The window's Extension Host is the caller's nearest ancestor whose parent is `VSCODE_PID`, and the caller's window is the live entry with that `pid`. `VSCODE_MCP_WINDOW_ID` is not consulted.
+2. **Not under an extension host.** The live entry whose `windowId` is `VSCODE_MCP_WINDOW_ID`. VS Code strips `VSCODE_PID` and the process type from integrated terminals, so this is how shells in a window's terminals, and what they start, find the window.
+
+When neither finds a live entry, there is no caller's window. Under an Extension Host the variable is ignored because it can only be inherited there, as when a window is opened with `code` from another window's terminal. A tmux or Herdr session started from a window's terminal keeps that window's `VSCODE_MCP_WINDOW_ID`, so agents in it name the window they want.
+
+The lookup is `caller-search` and `caller-window-id` in `scripts/list_registry.clj`. Tests: `test-bb/list_registry_test.clj`, `test-bb/mcp_test.clj`.
 
 ## Install of support files
 

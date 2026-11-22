@@ -93,6 +93,66 @@
   (is (= 0 (get-in (parse "ping" "--server-name" "bd" "--window-id" "ws-1" "--timeout" "0")
                    [:mcp/opts :timeout]))))
 
+(deftest parse-cli-window-id-optional
+  (let [ok (parse "ping" "--server-name" "bd")]
+    (is (nil? (:mcp/error ok)))
+    (is (nil? (get-in ok [:mcp/opts :window-id])))))
+
+(defn- parent-pid
+  []
+  (.pid (.get (.parent (java.lang.ProcessHandle/current)))))
+
+(deftest find-caller-window
+  (with-tmp-dir
+    (fn [tmp]
+      (let [windows (str (fs/path tmp "registry" "windows"))
+            opts {:server-name "bd" :dir windows}
+            lookup (fn [search]
+                     (mcp/find-caller-window {:mcp/opts opts :mcp/search search}))]
+        (write-entry! windows (live-entry))
+        (write-entry! windows (assoc (live-entry :window-id "ws-2") :pid (parent-pid)))
+        (write-entry! windows (live-entry :server-name "other" :window-id "ws-3"))
+        (is (= "ws-9" (get-in (mcp/find-caller-window {:mcp/opts (assoc opts :window-id "ws-9")})
+                              [:mcp/opts :window-id]))
+            "A given --window-id is kept")
+        (is (= "ws-1" (get-in (lookup {:caller/extension-host-pid (current-pid)})
+                              [:mcp/opts :window-id]))
+            "The extension host fills --window-id")
+        (is (= "ws-2" (get-in (lookup {:caller/env-window-id "ws-2"}) [:mcp/opts :window-id]))
+            "The variable fills --window-id")
+        (let [none (lookup {:caller/env-window-id nil})
+              message (get-in none [:mcp/error :message])]
+          (is (= "no-window" (err-code none)))
+          (is (re-find #"there is neither" message))
+          (is (re-find #"bd  ws-2" message)
+              "The message lists the server's live windows")
+          (is (not (re-find #"ws-3" message))
+              "The message leaves out other servers"))
+        (is (= "no-window" (err-code (lookup {:caller/vscode-pid 1 :caller/extension-host-pid 42})))
+            "An extension host with no entry is no window")
+        (is (re-find #"Live windows:\nnone"
+                     (get-in (mcp/find-caller-window {:mcp/opts (assoc opts :server-name "absent")
+                                                      :mcp/search {:caller/env-window-id nil}})
+                             [:mcp/error :message])))
+        (let [found (mcp/find-caller-window {:mcp/opts (assoc opts :server-name "absent")
+                                             :mcp/search {:caller/env-window-id "ws-3"}})
+              missing (mcp/resolve-window found)]
+          (is (= "unknown-id" (err-code missing)))
+          (is (re-find #"caller's window, ws-3, has no live listing" (get-in missing [:mcp/error :message]))
+              "unknown-id names the caller's window when --window-id was left out"))))))
+
+(deftest find-caller-window-same-workspace
+  (with-tmp-dir
+    (fn [tmp]
+      (let [windows (str (fs/path tmp "registry" "windows"))]
+        (write-entry! windows (assoc (live-entry :server-name "other" :window-id "ws-4") :pid (parent-pid)))
+        (write-entry! windows (live-entry :window-id "ws-4"))
+        (is (= "unknown-id"
+               (err-code (mcp/resolve-window
+                          (mcp/find-caller-window {:mcp/opts {:server-name "bd" :dir windows}
+                                                   :mcp/search {:caller/extension-host-pid (parent-pid)}}))))
+            "Another window on the same workspace wrote the server's entry")))))
+
 (deftest gather-stdin-ok
   (is (= {} (:mcp/arguments (mcp/gather-stdin {:mcp/verb "ping" :mcp/opts {}}))))
   (is (= {} (:mcp/arguments (mcp/gather-stdin {:mcp/verb "tools/call" :mcp/opts {:name "t"}}))))
