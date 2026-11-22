@@ -6,7 +6,8 @@
    ["path" :as path]
    [clojure.string :as string]
    [vscode-mcp.stdio-config :as stdio-config]
-   [vscode-mcp.stdio.connect-policy :as connect-policy]))
+   [vscode-mcp.stdio.connect-policy :as connect-policy]
+   [vscode-mcp.stdio.window-lookup :as window-lookup]))
 
 (def ^:private log-levels {:error 0
                            :warn 1
@@ -73,20 +74,60 @@
   (log-stderr :info "Complete message segment from stdin, sending to socket:" message)
   (.write socket (str message "\n")))
 
-(defn- write-give-up-error!
-  "Emit -32001 after connect budget exhausted; caller must exit 1."
-  []
-  (.write original-stdout
-          (str (js/JSON.stringify
-                #js {:jsonrpc "2.0"
-                     :error #js {:code -32001
-                                 :message "MCP server not reachable within 60s — port file missing or server not accepting connections"}})
-               "\n")))
+(def ^:private port-file-give-up-message
+  "MCP server not reachable within 60s — port file missing or server not accepting connections")
 
-(defn- resolve-port+ [port-or-port-file]
-  (if-let [parsed-port (parse-long port-or-port-file)]
-    (js/Promise.resolve parsed-port)
-    (read-port-from-file port-or-port-file)))
+(defn- request-ids
+  "Ids of the JSON-RPC requests among `lines`."
+  [lines]
+  (keep (fn [line]
+          (try
+            (let [id (.-id ^js (js/JSON.parse line))]
+              (when (some? id) id))
+            (catch :default _ nil)))
+        lines))
+
+(defn- write-give-up-error!
+  "Emit -32001 after connect budget exhausted: one response per queued request, or one
+   without an id when nothing is queued. Caller must exit 1."
+  [message queued-lines]
+  (log-stderr :error message)
+  (doseq [id (or (seq (request-ids queued-lines)) [nil])]
+    (.write original-stdout
+            (str (js/JSON.stringify
+                  (cond-> #js {:jsonrpc "2.0"
+                               :error #js {:code -32001
+                                           :message message}}
+                    (some? id) (doto (unchecked-set "id" id))))
+                 "\n"))))
+
+(defn- port-or-port-file-source
+  "Port source for a port or a port file path given on the command line."
+  [port-or-port-file]
+  (fn []
+    (if-let [parsed-port (parse-long port-or-port-file)]
+      (js/Promise.resolve parsed-port)
+      (read-port-from-file port-or-port-file))))
+
+(defn- caller-window-source
+  "Port source that finds the caller's window and reads the port file of the wrapper's
+   server there. `:give-up-message` says what was looked for."
+  [script-name]
+  (let [search (window-lookup/current-caller-search)]
+    (log-stderr :info "Looking for the caller's window:" (window-lookup/caller-search-text search))
+    {:port-source (fn []
+                    (let [entries (window-lookup/read-live-entries)
+                          port-file (get-in (window-lookup/target entries search script-name)
+                                            [:target/entry :mcp :portFilePath])]
+                      (if port-file
+                        (read-port-from-file port-file)
+                        (js/Promise.resolve nil))))
+     :settled-without-window? (fn []
+                                (window-lookup/settled-without-window?
+                                 (window-lookup/read-live-entries) search))
+     :give-up-message (fn []
+                        (window-lookup/failure-message
+                         (window-lookup/read-live-entries) search script-name))}))
 
 (defn- handle-stdin
   [^js stdin ^js socket & [{:keys [initial-buffer]}]]
@@ -185,7 +226,7 @@
   (.off stdin "close" (:on-close handlers)))
 
 (defn- connect-with-retry!+
-  [port-or-port-file host options {:keys [stdin-ended? cleanup-connect!]}]
+  [host options {:keys [port-source give-up-message stdin-ended? cleanup-connect! queued-lines]}]
   (js/Promise.
    (fn [resolve _reject]
      (let [start-ms (js/Date.now)
@@ -205,7 +246,7 @@
                         (vreset! gave-up? true)
                         (clear-pending-timer!)
                         (destroy-in-flight-socket!)
-                        (write-give-up-error!)
+                        (write-give-up-error! (give-up-message) @queued-lines)
                         (.exit process 1)))]
        (letfn [(handle-retryable-failure! [reason]
                  (when @stdin-ended?
@@ -230,7 +271,7 @@
                (attempt-connect! []
                  (when (and (not @gave-up?) (not @stdin-ended?))
                    (log-stderr :debug "Attempting MCP server connection…")
-                   (-> (resolve-port+ port-or-port-file)
+                   (-> (port-source)
                        (.then (fn [port]
                                 (when-not @stdin-ended?
                                   (if port
@@ -263,51 +304,61 @@
          (log-stderr :info "waiting for MCP server…")
          (attempt-connect!))))))
 
-(defn ^:export main [port-or-port-file host & _]
+(def ^:private settled-timeout-ms
+  "Connect budget when no window can come: time for the client's first request to
+   arrive, so the failure answers it."
+  2000)
+
+(defn- connect-plan
+  "Port source, give-up message and connect options for the command line's port or port
+   file, or for the caller's window when there is none."
+  [port-or-port-file script-name]
+  (if port-or-port-file
+    {:port-source (port-or-port-file-source port-or-port-file)
+     :give-up-message (constantly port-file-give-up-message)
+     :options connect-policy/default-options}
+    (let [{:keys [settled-without-window?] :as source} (caller-window-source script-name)]
+      (assoc source :options (cond-> connect-policy/default-options
+                               (settled-without-window?)
+                               (assoc :connect/timeout-ms settled-timeout-ms))))))
+
+(defn ^:export main [& args]
 
   (log-stderr :info "Running in node version: " (.-version process))
 
-  (let [script-name (path/basename (nth (.-argv process) 1 "mcp-server.js"))]
-    (cond
-      (not port-or-port-file)
-      (do
-        (log-stderr :error (str "Usage: " script-name " <port-or-port-file> [host]"))
-        (.write original-stdout
-                (str (js/JSON.stringify
-                      #js {:jsonrpc "2.0"
-                           :error #js {:code -32002
-                                       :message "Configuration error: Port or port file path not provided."}})
-                     "\n"))
-        (.exit process 1))
-
-      :else
-      (let [stdin (.-stdin process)
-            stdin-line-queue (volatile! [])
-            stdin-buffer (volatile! "")
-            stdin-ended? (volatile! false)
-            wait-phase-done? (volatile! false)
-            cleanup-connect! (volatile! (fn []))
-            abort-wait-phase! (fn []
-                                (when-not @wait-phase-done?
-                                  (@cleanup-connect!)
-                                  (.exit process 0)))
-            wait-handlers (attach-wait-phase-stdin!
-                           stdin
-                           {:line-queue stdin-line-queue
-                            :buffer stdin-buffer
-                            :ended? stdin-ended?
-                            :on-wait-abort! abort-wait-phase!})]
-        (-> (connect-with-retry!+ port-or-port-file host connect-policy/default-options
-                                  {:stdin-ended? stdin-ended?
-                                   :cleanup-connect! cleanup-connect!})
-            (.then (fn [{:keys [socket port connect-host]}]
-                     (vreset! wait-phase-done? true)
-                     (detach-wait-phase-stdin! stdin wait-handlers)
-                     (let [partial-remainder @stdin-buffer]
-                       (vreset! stdin-buffer "")
-                       (handle-socket socket)
-                       (handle-stdin stdin socket {:initial-buffer partial-remainder})
-                       (doseq [line @stdin-line-queue]
-                         (forward-line-to-socket! socket line))
-                       (vreset! stdin-line-queue [])
-                       (log-stderr :info "Connected to MCP server on" connect-host "port" port)))))))))
+  (let [script-name (path/basename (nth (.-argv process) 1 "mcp-server.js"))
+        [port-or-port-file host] (remove #(string/starts-with? % "--") args)
+        {:keys [port-source give-up-message options]} (connect-plan port-or-port-file script-name)
+        stdin (.-stdin process)
+        stdin-line-queue (volatile! [])
+        stdin-buffer (volatile! "")
+        stdin-ended? (volatile! false)
+        wait-phase-done? (volatile! false)
+        cleanup-connect! (volatile! (fn []))
+        abort-wait-phase! (fn []
+                            (when-not @wait-phase-done?
+                              (@cleanup-connect!)
+                              (.exit process 0)))
+        wait-handlers (attach-wait-phase-stdin!
+                       stdin
+                       {:line-queue stdin-line-queue
+                        :buffer stdin-buffer
+                        :ended? stdin-ended?
+                        :on-wait-abort! abort-wait-phase!})]
+    (-> (connect-with-retry!+ host options
+                              {:port-source port-source
+                               :give-up-message give-up-message
+                               :stdin-ended? stdin-ended?
+                               :cleanup-connect! cleanup-connect!
+                               :queued-lines stdin-line-queue})
+        (.then (fn [{:keys [socket port connect-host]}]
+                 (vreset! wait-phase-done? true)
+                 (detach-wait-phase-stdin! stdin wait-handlers)
+                 (let [partial-remainder @stdin-buffer]
+                   (vreset! stdin-buffer "")
+                   (handle-socket socket)
+                   (handle-stdin stdin socket {:initial-buffer partial-remainder})
+                   (doseq [line @stdin-line-queue]
+                     (forward-line-to-socket! socket line))
+                   (vreset! stdin-line-queue [])
+                   (log-stderr :info "Connected to MCP server on" connect-host "port" port)))))))

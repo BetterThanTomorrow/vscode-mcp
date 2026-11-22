@@ -132,6 +132,8 @@
                                  :debounce-timer nil
                                  :heartbeat-timer nil})
       (start-heartbeat! key)
+      (registry/set-window-id-env! (:vscode/extension-context config)
+                                   (:server/instance-slug server-info))
       (listing/maybe-install!+ config)
       (mcp-media/on-started! {:config config :server-info server-info})
       (refresh-and-write!+ key))))

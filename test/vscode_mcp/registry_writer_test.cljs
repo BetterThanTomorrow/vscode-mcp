@@ -187,3 +187,35 @@
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
+
+(defn- fake-extension-context
+  [calls]
+  #js {:environmentVariableCollection
+       #js {:replace (fn [k v] (swap! calls conj [:replace k v]))}})
+
+(deftest window-id-env-failure-leaves-start-alone-test
+  (async done
+         (let [dir (tmp-dir)
+               config (tmp-config dir {:vscode/extension-context
+                                       #js {:environmentVariableCollection
+                                            #js {:replace (fn [_ _] (throw (js/Error. "no")))}}})]
+           (-> (sut/on-started!+ config (tmp-info))
+               (p/then (fn [_]
+                         (is (some? (read-entry dir))
+                             "The entry is written although the variable couldn't be set")))
+               (p/finally (fn [_]
+                            (cleanup! dir)
+                            (done)))))))
+
+(deftest window-id-env-set-on-start-test
+  (async done
+         (let [dir (tmp-dir)
+               calls (atom [])
+               config (tmp-config dir {:vscode/extension-context (fake-extension-context calls)})]
+           (-> (sut/on-started!+ config (tmp-info))
+               (p/then (fn [_]
+                         (is (= [[:replace "VSCODE_MCP_WINDOW_ID" "ws-abc"]] @calls)
+                             "Start sets the window's windowId in its terminals")))
+               (p/finally (fn [_]
+                            (cleanup! dir)
+                            (done)))))))

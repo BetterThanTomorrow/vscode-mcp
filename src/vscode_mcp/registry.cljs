@@ -12,6 +12,10 @@
   #{:schemaVersion :name :serverName :windowId :appId
     :workspaceRoot :workspaceFolder :hostname :pid :updatedAt :mcp})
 
+(def window-id-env
+  "Environment variable set in a window's terminals to the window's windowId."
+  "VSCODE_MCP_WINDOW_ID")
+
 (def default-heartbeat-ms 30000)
 (def default-debounce-ms 1000)
 
@@ -38,6 +42,16 @@
 (defn now-iso
   []
   (.toISOString (js/Date.)))
+
+(defn set-window-id-env!
+  "Sets `window-id-env` to `window-id` in the terminals of `extension-context`'s window.
+   Kept after stop: a variable naming a window with no live entry finds no window."
+  [^js extension-context window-id]
+  (try
+    (when-let [^js collection (some-> extension-context .-environmentVariableCollection)]
+      (.replace collection window-id-env window-id))
+    (catch :default _
+      nil)))
 
 (defn current-hostname
   []

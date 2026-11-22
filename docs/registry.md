@@ -96,6 +96,7 @@ On MCP start (`registry-writer/on-started!+`), when `:registry/enabled?`:
 1. Sweep `windows/` for JSON entries and leftover `.tmp` files whose `pid` is dead.
 2. Write this window's entry (envelope plus `:registry/custom-data+`).
 3. Heartbeat: rewrite the last payload with a fresh `updatedAt` every 30s. Heartbeat does not re-run `custom-data+`.
+4. Set `VSCODE_MCP_WINDOW_ID` to the window's `windowId` in the window's terminals, with the extension context's `environmentVariableCollection`. Every consumer in a window sets the same value. Stop leaves it, since a variable naming a window with no live entry finds no window.
 
 `stop!+` increments a generation (in-flight `custom-data+` cannot write a stale entry), clears timers, and unlinks this window's entry.
 
@@ -167,6 +168,16 @@ Pez authors `README.md`. Pez authors `AGENTS.md` to match this recipe.
 When neither finds a live entry, there is no caller's window. Under an Extension Host the variable is ignored because it can only be inherited there, as when a window is opened with `code` from another window's terminal. A tmux or Herdr session started from a window's terminal keeps that window's `VSCODE_MCP_WINDOW_ID`, so agents in it name the window they want.
 
 The lookup is `caller-search` and `caller-window-id` in `scripts/list_registry.clj`. Tests: `test-bb/list_registry_test.clj`, `test-bb/mcp_test.clj`.
+
+### The stdio wrapper with no port file
+
+Started with no port or port file argument, the stdio wrapper connects to the caller's window by the same rule (`vscode-mcp.stdio.window-lookup`), so one MCP config works in every window:
+
+```json
+{"command": "node", "args": ["/home/you/.config/joyride/joyride-mcp-server.js"]}
+```
+
+The wrapper's server is the one whose entries have a `mcp.wrapperPath` with the running script's file name. It reads its ancestry and environment once, at start. Under an Extension Host, it waits within its 60 s connect budget for its window's entry and port file, since the client may start before the server does. Otherwise, the variable's window is live already, so it gives up after 2 s when there is none. The failure says what was looked for and lists the server's live windows, on stderr and as the error response to each request it queued. The ancestry comes from `/proc/<pid>/stat` on Linux, which needs no `ps` and so works in slim containers, from `ps` on macOS, and from PowerShell's `Get-CimInstance Win32_Process` on Windows, where a parent pid whose process was created after its child is a reused pid and ends the walk. Write the wrapper's path the way the harness expands it; a JSON config usually needs it absolute. Tests: `test/vscode_mcp/window_lookup_test.cljs`.
 
 ## Install of support files
 

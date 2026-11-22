@@ -77,7 +77,8 @@ No Extension Host here. Integration proof is in consumer Extension Hosts and the
 | `vscode-mcp.lifecycle` | Pure state/config helpers (no VS Code API) |
 | `vscode-mcp.port-file` | Port file under `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` + stale sweep |
 | `vscode-mcp.server` | TCP MCP socket server + port file I/O |
-| `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main) |
+| `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main). With no port argument, it connects to the caller's window |
+| `vscode-mcp.stdio.window-lookup` | The caller's window for the wrapper: process ancestry, `VSCODE_MCP_WINDOW_ID`, live entries |
 | `vscode-mcp.manifest` | Copilot package.json → tools/resources/skills |
 | `vscode-mcp.requests` | `handle-manifest-request` for non-`tools/call` methods |
 | `vscode-mcp.responses` | MCP response helpers |
@@ -134,7 +135,7 @@ Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}
 
 Feature doc: [docs/registry.md](docs/registry.md).
 
-Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, and heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`). `stop!+` fences in-flight writes and unlinks the registry file.
+Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`), and sets `VSCODE_MCP_WINDOW_ID` to the window's id in its terminals. `stop!+` fences in-flight writes and unlinks the registry file.
 
 `:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the entry; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
 

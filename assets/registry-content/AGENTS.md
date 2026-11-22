@@ -26,6 +26,8 @@ Use the list to pick the relevant server. The listing contains `appId` (editor C
 
 Attach with the `mcp:` line's command, or the `mcp` fields in `--json`: spawn it, or write the harness' MCP config from it and then ask the user to connect. In the caller's window the command is `node <wrapperPath>`, and `mcp` holds only `wrapperPath`. Listing other windows, the command is `node <wrapperPath> <portFilePath> <host>`, and `mcp` has those fields and the port.
 
+When the harness runs inside a VS Code window, or in one of its terminals, write the config with only the wrapper: `node <wrapperPath>`, with no port file. The wrapper then connects to the window the harness runs in, so one config works in every window, and it belongs in the harness' user-level config rather than a project's. Use `<portFilePath> <host>` only to reach a window other than your own.
+
 After attach, query MCP for live details. Entry session and runtime fields can lag; MCP is current.
 
 ## If you cannot hold an MCP session
