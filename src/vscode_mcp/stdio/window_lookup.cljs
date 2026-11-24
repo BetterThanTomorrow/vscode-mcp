@@ -181,6 +181,19 @@
                             %)
                          entries)}))
 
+(defn caller-window-port+
+  "Promise of `{:port … :host …}` for the wrapper's own server in the caller's window: the
+   port read from the entry's port file with `read-port+`, and the entry's host. Nil when
+   there is no entry or port yet."
+  [entries search script-name read-port+]
+  (let [{:keys [portFilePath host]} (get-in (target entries search script-name) [:target/entry :mcp])]
+    (if portFilePath
+      (.then (read-port+ portFilePath)
+             (fn [port]
+               (when port
+                 {:port port :host host})))
+      (js/Promise.resolve nil))))
+
 (defn- window-line
   [{:keys [serverName windowId workspaceRoot]}]
   (string/join "  " [serverName windowId (or workspaceRoot "no folder")]))
@@ -193,7 +206,9 @@
     (if-let [window-id (caller-window-id entries search)]
       (str "Found the window " window-id ", but no live " server " entry in it.")
       (str "No window found for " server ". Looked for " (caller-search-text search)
-           ". Give the wrapper the port file of the window to connect to. Live windows:\n"
+           ". Give the wrapper the port file of the window to connect to."
+           " An ECA entry the extension manages is rewritten on every start;"
+           " the extension's ECA auto-registration setting turns that off. Live windows:\n"
            (string/join "\n" (map window-line own))))))
 
 ;; Registry

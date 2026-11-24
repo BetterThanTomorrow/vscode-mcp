@@ -2,8 +2,9 @@
   (:require
    ["child_process" :as child-process]
    ["path" :as path]
-   [cljs.test :refer [deftest is testing]]
+   [cljs.test :refer [async deftest is testing]]
    [clojure.string :as string]
+   [promesa.core :as p]
    [vscode-mcp.stdio.window-lookup :as sut]))
 
 (def ext-host-env
@@ -154,10 +155,36 @@
   (is (true? (sut/settled-without-window? entries {:caller/env-window-id nil})))
   (is (false? (sut/settled-without-window? entries {:caller/env-window-id "ws-b"}))))
 
+(deftest caller-window-port-test
+  (async done
+         (let [entries (update-in entries [2 :mcp] assoc
+                                  :portFilePath "/pf/joyride-ws-b.port"
+                                  :host "::")
+               read-port+ (fn [port-file]
+                            (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
+           (-> (p/let [found (sut/caller-window-port+ entries {:caller/env-window-id "ws-b"}
+                                                      "joyride-mcp-server.js" read-port+)
+                       no-entry (sut/caller-window-port+ entries {:caller/env-window-id "ws-c"}
+                                                         "joyride-mcp-server.js" read-port+)
+                       no-port (sut/caller-window-port+ (assoc-in entries [2 :mcp :portFilePath] "/pf/gone.port")
+                                                        {:caller/env-window-id "ws-b"}
+                                                        "joyride-mcp-server.js" read-port+)]
+                 (is (= {:port 4711 :host "::"} found)
+                     "The entry's host comes with the port from its port file")
+                 (is (nil? no-entry)
+                     "A window without the wrapper's server gives nothing to connect to")
+                 (is (nil? no-port)
+                     "A port file that can't be read gives nothing to connect to"))
+               (p/catch (fn [e]
+                          (is (nil? e) "The port source doesn't fail")))
+               (p/then (fn [_] (done)))))))
+
 (deftest failure-message-test
   (let [message (sut/failure-message entries {:caller/env-window-id nil} "joyride-mcp-server.js")]
     (is (re-find #"No window found for joyride" message))
     (is (re-find #"there is neither" message))
+    (is (re-find #"ECA auto-registration setting" message)
+        "A managed ECA entry is rewritten on every start, unless the setting is off")
     (is (re-find #"joyride  ws-b  /p/b" message)
         "The live windows of the wrapper's server are listed")
     (is (not (re-find #"ws-c" message))))

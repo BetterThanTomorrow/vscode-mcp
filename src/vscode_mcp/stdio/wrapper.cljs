@@ -5,7 +5,6 @@
    ["process" :as process]
    ["path" :as path]
    [clojure.string :as string]
-   [vscode-mcp.stdio-config :as stdio-config]
    [vscode-mcp.stdio.connect-policy :as connect-policy]
    [vscode-mcp.stdio.window-lookup :as window-lookup]))
 
@@ -102,26 +101,27 @@
                  "\n"))))
 
 (defn- port-or-port-file-source
-  "Port source for a port or a port file path given on the command line."
-  [port-or-port-file]
+  "Port source for a port or a port file path, and a host, given on the command line. It
+   resolves `{:port … :host …}`, or nil when the port file has no port."
+  [port-or-port-file host]
   (fn []
     (if-let [parsed-port (parse-long port-or-port-file)]
-      (js/Promise.resolve parsed-port)
-      (read-port-from-file port-or-port-file))))
+      (js/Promise.resolve {:port parsed-port :host host})
+      (.then (read-port-from-file port-or-port-file)
+             #(when % {:port % :host host})))))
 
 (defn- caller-window-source
-  "Port source that finds the caller's window and reads the port file of the wrapper's
-   server there. `:give-up-message` says what was looked for."
+  "Port source that finds the caller's window and gives the port, from the port file of
+   the wrapper's server there, and the host of its entry. `:give-up-message` says what
+   was looked for."
   [script-name]
   (let [search (window-lookup/current-caller-search)]
     (log-stderr :info "Looking for the caller's window:" (window-lookup/caller-search-text search))
     {:port-source (fn []
-                    (let [entries (window-lookup/read-live-entries)
-                          port-file (get-in (window-lookup/target entries search script-name)
-                                            [:target/entry :mcp :portFilePath])]
-                      (if port-file
-                        (read-port-from-file port-file)
-                        (js/Promise.resolve nil))))
+                    (window-lookup/caller-window-port+ (window-lookup/read-live-entries)
+                                                       search
+                                                       script-name
+                                                       read-port-from-file))
      :settled-without-window? (fn []
                                 (window-lookup/settled-without-window?
                                  (window-lookup/read-live-entries) search))
@@ -226,7 +226,7 @@
   (.off stdin "close" (:on-close handlers)))
 
 (defn- connect-with-retry!+
-  [host options {:keys [port-source give-up-message stdin-ended? cleanup-connect! queued-lines]}]
+  [options {:keys [port-source give-up-message stdin-ended? cleanup-connect! queued-lines]}]
   (js/Promise.
    (fn [resolve _reject]
      (let [start-ms (js/Date.now)
@@ -272,10 +272,10 @@
                  (when (and (not @gave-up?) (not @stdin-ended?))
                    (log-stderr :debug "Attempting MCP server connection…")
                    (-> (port-source)
-                       (.then (fn [port]
+                       (.then (fn [{:keys [port host]}]
                                 (when-not @stdin-ended?
                                   (if port
-                                    (let [connect-host (stdio-config/normalize-host host)
+                                    (let [connect-host (connect-policy/connect-host host)
                                           socket (net/connect #js {:port port :host connect-host})]
                                       (vreset! in-flight-socket socket)
                                       (.once socket "error"
@@ -311,10 +311,10 @@
 
 (defn- connect-plan
   "Port source, give-up message and connect options for the command line's port or port
-   file, or for the caller's window when there is none."
-  [port-or-port-file script-name]
+   file and host, or for the caller's window when there is none."
+  [port-or-port-file host script-name]
   (if port-or-port-file
-    {:port-source (port-or-port-file-source port-or-port-file)
+    {:port-source (port-or-port-file-source port-or-port-file host)
      :give-up-message (constantly port-file-give-up-message)
      :options connect-policy/default-options}
     (let [{:keys [settled-without-window?] :as source} (caller-window-source script-name)]
@@ -328,7 +328,7 @@
 
   (let [script-name (path/basename (nth (.-argv process) 1 "mcp-server.js"))
         [port-or-port-file host] (remove #(string/starts-with? % "--") args)
-        {:keys [port-source give-up-message options]} (connect-plan port-or-port-file script-name)
+        {:keys [port-source give-up-message options]} (connect-plan port-or-port-file host script-name)
         stdin (.-stdin process)
         stdin-line-queue (volatile! [])
         stdin-buffer (volatile! "")
@@ -345,7 +345,7 @@
                         :buffer stdin-buffer
                         :ended? stdin-ended?
                         :on-wait-abort! abort-wait-phase!})]
-    (-> (connect-with-retry!+ host options
+    (-> (connect-with-retry!+ options
                               {:port-source port-source
                                :give-up-message give-up-message
                                :stdin-ended? stdin-ended?

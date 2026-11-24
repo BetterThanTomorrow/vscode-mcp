@@ -1,4 +1,6 @@
-(ns vscode-mcp.stdio.connect-policy)
+(ns vscode-mcp.stdio.connect-policy
+  (:require
+   [vscode-mcp.stdio-config :as stdio-config]))
 
 (def default-options
   {:connect/timeout-ms 60000
@@ -18,3 +20,13 @@
        :connect/elapsed-ms elapsed}
       {:connect/action :give-up
        :connect/elapsed-ms elapsed})))
+
+(defn connect-host
+  "The host to dial for a server on `host`: loopback for an unspecified address, and the
+   default host for a blank one."
+  [host]
+  (let [host (stdio-config/normalize-host host)]
+    (get {"0.0.0.0" "127.0.0.1"
+          "::" "::1"}
+         host
+         host)))

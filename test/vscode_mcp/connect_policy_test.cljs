@@ -50,3 +50,13 @@
       (is (= :retry (:connect/action decision)))
       (is (= 0 (:connect/elapsed-ms decision)))
       (is (= 500 (:connect/delay-ms decision))))))
+
+(deftest connect-host-test
+  (is (= "127.0.0.1" (sut/connect-host "0.0.0.0"))
+      "The unspecified IPv4 address connects as loopback")
+  (is (= "::1" (sut/connect-host "::"))
+      "The unspecified IPv6 address connects as loopback")
+  (is (= "127.0.0.1" (sut/connect-host nil))
+      "No host connects to the default host")
+  (is (= "localhost" (sut/connect-host "localhost")))
+  (is (= "192.168.1.5" (sut/connect-host "192.168.1.5"))))
