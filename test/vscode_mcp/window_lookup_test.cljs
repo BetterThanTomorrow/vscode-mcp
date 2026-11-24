@@ -54,34 +54,37 @@
 (def constrained-language-prefix
   "$ExecutionContext.SessionState.LanguageMode='ConstrainedLanguage'; ")
 
-(defn- run-constrained
-  "Output of `script` run by the process-table command's PowerShell in constrained language mode."
-  [script]
+(defn- run-powershell
+  "Output of `script`, after `prefix`, run by the process-table command's PowerShell."
+  [prefix script]
   (let [[cmd args] (sut/process-table-command)]
     (child-process/execFileSync cmd
-                                (clj->js (conj (pop args) (str constrained-language-prefix script)))
+                                (clj->js (conj (pop args) (str prefix script)))
                                 #js {:encoding "utf8"
                                      :windowsHide true})))
 
 (deftest read-process-table-test
-  (if (= "win32" js/process.platform)
+  (is (= js/process.ppid (get-in (sut/read-process-table) [js/process.pid :ppid]))
+      "The read finds this process's parent")
+  (when (= "win32" js/process.platform)
     (let [[cmd] (sut/process-table-command)
-          table (sut/parse-process-table (run-constrained sut/process-table-script))
+          probe "try { [System.Console]::WriteLine('full') } catch { 'constrained' }"
+          table (sut/parse-process-table
+                 (run-powershell constrained-language-prefix sut/process-table-script))
           {:keys [ppid created]} (get table js/process.pid)
           parent-created (get-in table [js/process.ppid :created])]
       (is (path/isAbsolute cmd)
           "PowerShell is started by its absolute path")
-      (is (= "constrained"
-             (string/trim (run-constrained "try { [System.Console]::WriteLine('full') } catch { 'constrained' }")))
+      (is (= "full" (string/trim (run-powershell "" probe)))
+          "Without the prefix, the probe runs in full language mode")
+      (is (= "constrained" (string/trim (run-powershell constrained-language-prefix probe)))
           "The prefix puts the rest of the command in constrained language mode")
       (is (= js/process.ppid ppid)
           "In constrained language mode, the read finds this process's parent")
       (is (and (number? created)
                (number? parent-created)
                (<= parent-created created))
-          "The creation times put the parent first"))
-    (is (= js/process.ppid (get-in (sut/read-process-table) [js/process.pid :ppid]))
-        "The read finds this process's parent")))
+          "The creation times put the parent first"))))
 
 (deftest ancestry-test
   (is (= [[50 40] [40 38] [38 100] [100 1] [1 0]]
