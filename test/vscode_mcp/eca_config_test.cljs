@@ -1,5 +1,7 @@
 (ns vscode-mcp.eca-config-test
   (:require
+   ["fs" :as fs]
+   ["os" :as os]
    ["path" :as path]
    [cljs.test :refer [deftest is testing]]
    [clojure.string :as str]
@@ -217,3 +219,43 @@
       (is (= :write (:eca/action plan)))
       (is (str/includes? text "\n    \"mcpServers\""))
       (is (str/includes? text "\n            \"command\": \"node\"")))))
+
+(def eca-entry-fixture-path
+  "Where the ECA entries `test-bb/eca_entry_test.clj` starts are written."
+  (path/join (js/process.cwd) ".tmp" "eca-entry-fixture.json"))
+
+(defn- eca-entry-case
+  "A case for `test-bb/eca_entry_test.clj`: the ECA entry for a stub wrapper in
+   `wrapper-dir` under `root`, a folder the bb test creates and deletes."
+  [case-name root wrapper-dir entry-opts]
+  (let [wrapper-path (path/join wrapper-dir "calva-mcp-server.js")]
+    {"name" case-name
+     "root" root
+     "wrapper" wrapper-path
+     "entry" (sut/desired-entry (assoc entry-opts
+                                      :os/platform js/process.platform
+                                      :wrapper/path wrapper-path))}))
+
+(deftest eca-entry-fixture-test
+  (let [id (str "vscode-mcp-eca-test-" js/process.pid "-" (js/Date.now))
+        home (os/homedir)
+        home-root (path/join home id)
+        home-dir (path/join home-root "😀 home")
+        outside-root (path/join (os/tmpdir) id)
+        outside-dir (path/join outside-root "eca entry's $dir 😀")
+        cases [(eca-entry-case "under home, registry on" home-root home-dir
+                               {:os/home-dir home
+                                :registry/enabled? true})
+               (eca-entry-case "under home, registry off" home-root home-dir
+                               {:os/home-dir home
+                                :registry/enabled? false
+                                :server/port-file-path "C:\\Users\\Some One\\.config\\vscode-mcp\\port-files\\calva-backseat-driver-ws-abc.port"
+                                :server/host "127.0.0.1"})
+               (eca-entry-case "outside home" outside-root outside-dir
+                               {:os/home-dir (path/join outside-root "home")
+                                :registry/enabled? true})]]
+    (is (= [true true false]
+           (map #(str/includes? (get-in % ["entry" "args" 1]) "homedir()") cases))
+        "The bb test starts both forms of the script")
+    (fs/mkdirSync (path/dirname eca-entry-fixture-path) #js {:recursive true})
+    (fs/writeFileSync eca-entry-fixture-path (js/JSON.stringify (clj->js cases) nil 2))))
