@@ -16,6 +16,11 @@
   "Environment variable set in a window's terminals to the window's windowId."
   "VSCODE_MCP_WINDOW_ID")
 
+(def extension-host-env
+  "Environment variable an Extension Host sets in its own environment to
+   `<vscode-pid>:<extension-host-pid>`, for the processes it starts."
+  "VSCODE_MCP_EXTENSION_HOST")
+
 (def default-heartbeat-ms 30000)
 (def default-debounce-ms 1000)
 
@@ -52,6 +57,20 @@
       (.replace collection window-id-env window-id))
     (catch :default _
       nil)))
+
+(defn extension-host-env-value
+  "`<vscode-pid>:<extension-host-pid>` for `extension-host-env`, or nil when `vscode-pid`,
+   the `VSCODE_PID` value, is no pid."
+  [vscode-pid extension-host-pid]
+  (some-> vscode-pid parse-long (str ":" extension-host-pid)))
+
+(defn set-extension-host-env!
+  "Sets `extension-host-env` in this Extension Host's environment, so the processes it
+   starts inherit it."
+  []
+  (when-let [value (extension-host-env-value (unchecked-get js/process.env "VSCODE_PID")
+                                             js/process.pid)]
+    (unchecked-set js/process.env extension-host-env value)))
 
 (defn current-hostname
   []

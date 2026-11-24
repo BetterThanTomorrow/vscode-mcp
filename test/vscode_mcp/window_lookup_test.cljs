@@ -117,6 +117,38 @@
              (sut/caller-search (delay [[50 38] [38 100]]) ext-host-env)))
       "Under an extension host it is"))
 
+(deftest parse-extension-host-test
+  (is (= [100 38] (sut/parse-extension-host "100:38")))
+  (is (every? nil? (map sut/parse-extension-host
+                        [nil "" "100" "100:" ":38" "100:38:1" " 100:38" "a:b" "-1:38"
+                         "99999999999999999999:38"]))
+      "Anything but two pids joined by a colon is no value"))
+
+(deftest caller-search-extension-host-env-test
+  (let [unread (delay (throw (js/Error. "The process table was read")))
+        ancestry (delay [[50 39] [39 100] [100 1]])]
+    (is (= {:caller/vscode-pid 100 :caller/extension-host-pid 38}
+           (sut/caller-search unread (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "100:38")))
+        "The variable names the extension host, and the process table isn't read")
+    (is (= 39 (:caller/extension-host-pid
+               (sut/caller-search ancestry (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "200:38"))))
+        "A value from another VS Code's extension host falls back to the ancestry")
+    (is (= 39 (:caller/extension-host-pid
+               (sut/caller-search ancestry (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "100-38"))))
+        "A malformed value falls back to the ancestry")
+    (is (= 39 (:caller/extension-host-pid (sut/caller-search ancestry ext-host-env)))
+        "No variable falls back to the ancestry")
+    (is (nil? (:caller/extension-host-pid
+               (sut/caller-search [[50 1] [1 nil]]
+                                  (-> ext-host-env
+                                      (dissoc "VSCODE_PID")
+                                      (assoc "VSCODE_MCP_EXTENSION_HOST" "100:38")))))
+        "Without VSCODE_PID, the variable isn't taken")
+    (is (= {:caller/env-window-id "ws-b"}
+           (sut/caller-search unread {"VSCODE_MCP_EXTENSION_HOST" "100:38"
+                                      "VSCODE_MCP_WINDOW_ID" "ws-b"}))
+        "Outside an extension host, the variable is ignored")))
+
 (def entries
   [{:serverName "joyride" :windowId "ws-a" :pid 38
     :mcp {:wrapperPath "/home/u/.config/joyride/joyride-mcp-server.js"}}
@@ -127,6 +159,16 @@
     :mcp {:wrapperPath "C:\\Users\\u\\.config\\joyride\\joyride-mcp-server.js"}}
    {:serverName "calva-backseat-driver" :windowId "ws-c" :pid 9
     :mcp {:wrapperPath "/home/u/.config/calva/backseat-driver/calva-mcp-server.js"}}])
+
+(deftest extension-host-env-test
+  (let [env (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "100:7")
+        shared [{:serverName "joyride" :windowId "ws-a" :pid 38
+                 :mcp {:wrapperPath "/home/u/.config/joyride/joyride-mcp-server.js"}}
+                {:serverName "joyride" :windowId "ws-a" :pid 7
+                 :mcp {:wrapperPath "/home/u/.config/joyride/joyride-mcp-server.js"}}]]
+    (is (= 7 (get-in (sut/target shared (sut/caller-search [] env) "joyride-mcp-server.js")
+                     [:target/entry :pid]))
+        "The variable's extension host picks its entry among windows that share a windowId")))
 
 (deftest target-test
   (testing "the wrapper's own server in the caller's window"

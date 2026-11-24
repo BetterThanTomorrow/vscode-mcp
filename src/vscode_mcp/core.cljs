@@ -8,6 +8,7 @@
    [vscode-mcp.manual-setup.dialog :as dialog]
    [vscode-mcp.policy :as policy]
    [vscode-mcp.port-file :as port-file]
+   [vscode-mcp.registry :as registry]
    [vscode-mcp.registry-writer :as registry-writer]
    [vscode-mcp.server :as server]
    [vscode-mcp.server-readiness :as server-readiness]
@@ -189,6 +190,7 @@
 
 (defn maybe-start!+
   [config state silent?]
+  (registry/set-extension-host-env!)
   (let [{:mcp/keys [auto-start? auto-register? auto-register-eca?]} config]
     (p/let [_ (port-file/sweep-stale!+ (port-file/port-dir config))
             _ (when (and (cursor/cursor-mcp-available?) (not auto-register?))
@@ -205,12 +207,14 @@
 
 (defn start!+
   [config state silent?]
+  (registry/set-extension-host-env!)
   (start-flow!+ config state silent?))
 
 (defn register-with-cursor!+
   "Ensure the socket server is running, then register with Cursor using the
    uniform generation-suffixed name path."
   [config state]
+  (registry/set-extension-host-env!)
   (if-not (cursor/cursor-mcp-available?)
     (p/resolved {:ok false :reason :cursor-api-unavailable :state state})
     (p/let [state' (if (running? state)

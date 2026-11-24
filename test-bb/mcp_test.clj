@@ -4,6 +4,7 @@
    [cheshire.core :as json]
    [clojure.string :as string]
    [clojure.test :refer [deftest is]]
+   [list-registry :as listing]
    [mcp :as mcp]))
 
 (def png-b64
@@ -151,6 +152,26 @@
                (err-code (mcp/resolve-window
                           (mcp/find-caller-window {:mcp/opts {:server-name "bd" :dir windows}
                                                    :mcp/search {:caller/extension-host-pid (parent-pid)}}))))
+            "Another window on the same workspace wrote the server's entry")))))
+
+(deftest find-caller-window-from-extension-host-env
+  (with-tmp-dir
+    (fn [tmp]
+      (let [windows (str (fs/path tmp "registry" "windows"))
+            search-for (fn [pid]
+                         (listing/caller-search []
+                                                {"VSCODE_CRASH_REPORTER_PROCESS_TYPE" "extensionHost"
+                                                 "VSCODE_PID" "100"
+                                                 "VSCODE_MCP_EXTENSION_HOST" (str "100:" pid)}))
+            lookup (fn [pid]
+                     (mcp/find-caller-window {:mcp/opts {:server-name "bd" :dir windows}
+                                              :mcp/search (search-for pid)}))]
+        (write-entry! windows (assoc (live-entry :server-name "other" :window-id "ws-4") :pid (parent-pid)))
+        (write-entry! windows (live-entry :window-id "ws-4"))
+        (is (= ["ws-4" (current-pid)]
+               ((juxt (comp :window-id :mcp/opts) :mcp/caller-pid) (lookup (current-pid))))
+            "The variable's extension host fills --window-id and the caller's pid")
+        (is (= "unknown-id" (err-code (mcp/resolve-window (lookup (parent-pid)))))
             "Another window on the same workspace wrote the server's entry")))))
 
 (deftest gather-stdin-ok

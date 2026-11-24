@@ -112,6 +112,37 @@
   (is (= {:caller/env-window-id nil}
          (listing/caller-search [[50 1]] {}))))
 
+(deftest parse-extension-host-test
+  (is (= [100 38] (listing/parse-extension-host "100:38")))
+  (is (every? nil? (map listing/parse-extension-host
+                        [nil "" "100" "100:" ":38" "100:38:1" " 100:38" "a:b" "-1:38"
+                         "99999999999999999999:38"]))
+      "Anything but two pids joined by a colon is no value"))
+
+(deftest caller-search-extension-host-env-test
+  (let [ancestry [[50 39] [39 100] [100 1]]]
+    (is (= {:caller/vscode-pid 100 :caller/extension-host-pid 38}
+           (listing/caller-search ancestry (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "100:38")))
+        "The variable names the extension host")
+    (is (= 39 (:caller/extension-host-pid
+               (listing/caller-search ancestry (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "200:38"))))
+        "A value from another VS Code's extension host falls back to the ancestry")
+    (is (= 39 (:caller/extension-host-pid
+               (listing/caller-search ancestry (assoc ext-host-env "VSCODE_MCP_EXTENSION_HOST" "100-38"))))
+        "A malformed value falls back to the ancestry")
+    (is (= 39 (:caller/extension-host-pid (listing/caller-search ancestry ext-host-env)))
+        "No variable falls back to the ancestry")
+    (is (nil? (:caller/extension-host-pid
+               (listing/caller-search [[50 1] [1 nil]]
+                                      (-> ext-host-env
+                                          (dissoc "VSCODE_PID")
+                                          (assoc "VSCODE_MCP_EXTENSION_HOST" "100:38")))))
+        "Without VSCODE_PID, the variable isn't taken")
+    (is (= {:caller/env-window-id "ws-b"}
+           (listing/caller-search ancestry {"VSCODE_MCP_EXTENSION_HOST" "100:38"
+                                            "VSCODE_MCP_WINDOW_ID" "ws-b"}))
+        "Outside an extension host, the variable is ignored")))
+
 (deftest caller-window-id-test
   (is (= "ws-a" (listing/caller-window-id entries {:caller/extension-host-pid own-pid})))
   (is (nil? (listing/caller-window-id entries {:caller/extension-host-pid 42}))

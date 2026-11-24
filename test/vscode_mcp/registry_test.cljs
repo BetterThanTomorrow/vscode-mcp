@@ -18,6 +18,13 @@
     (is (= (path/join (os/homedir) ".config" "vscode-mcp" "registry" "windows")
            (sut/default-dir)))))
 
+(deftest extension-host-env-value-test
+  (is (= "98328:49559" (sut/extension-host-env-value "98328" 49559)))
+  (is (nil? (sut/extension-host-env-value nil 49559))
+      "Without VSCODE_PID there is no value")
+  (is (nil? (sut/extension-host-env-value "" 49559)))
+  (is (nil? (sut/extension-host-env-value "not-a-pid" 49559))))
+
 (deftest build-envelope-test
   (testing "schemaVersion, name, and serverName are present"
     (let [env (sut/build-envelope {:server-name "backseat-driver"

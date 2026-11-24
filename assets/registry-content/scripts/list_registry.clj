@@ -55,6 +55,10 @@
   "Environment variable vscode-mcp sets in a window's terminals to the window's windowId."
   "VSCODE_MCP_WINDOW_ID")
 
+(def extension-host-env
+  "Environment variable vscode-mcp sets in an Extension Host to `<vscode-pid>:<extension-host-pid>`."
+  "VSCODE_MCP_EXTENSION_HOST")
+
 (defn ancestry
   "[pid parent-pid] pairs from this process up, nearest first."
   []
@@ -64,19 +68,42 @@
        (mapv (fn [^java.lang.ProcessHandle ph]
                [(.pid ph) (some-> (.parent ph) (.orElse nil) .pid)]))))
 
+(defn parse-extension-host
+  "`[vscode-pid extension-host-pid]` from a `VSCODE_MCP_EXTENSION_HOST` value, or nil
+   when it isn't two pids joined by a colon."
+  [value]
+  (when-let [[_ & pids] (some->> value (re-matches #"(\d+):(\d+)"))]
+    (let [pids (mapv parse-long pids)]
+      (when (every? some? pids)
+        pids))))
+
+(defn- env-extension-host-pid
+  "The extension host `VSCODE_MCP_EXTENSION_HOST` names in `env`, when its VS Code is `vscode-pid`."
+  [env vscode-pid]
+  (let [[env-vscode-pid extension-host-pid] (parse-extension-host (get env extension-host-env))]
+    (when (= vscode-pid env-vscode-pid)
+      extension-host-pid)))
+
+(defn- ancestry-extension-host-pid
+  "The nearest pid in `ancestry` whose parent is `vscode-pid`."
+  [ancestry vscode-pid]
+  (some (fn [[pid ppid]]
+          (when (= vscode-pid ppid) pid))
+        ancestry))
+
 (defn caller-search
   "What identifies the caller's window. Under an extension host, which VS Code marks
-   in the environment it passes down, the extension host is the nearest ancestor whose
-   parent is VS Code's main process, `VSCODE_PID`. Otherwise it is the window
+   in the environment it passes down, the extension host is the one
+   `VSCODE_MCP_EXTENSION_HOST` names for VS Code's main process, `VSCODE_PID`, or else
+   the nearest ancestor whose parent is that process. Otherwise it is the window
    `VSCODE_MCP_WINDOW_ID` names."
   [ancestry env]
   (if (= "extensionHost" (get env "VSCODE_CRASH_REPORTER_PROCESS_TYPE"))
     (let [vscode-pid (some-> (get env "VSCODE_PID") parse-long)]
       {:caller/vscode-pid vscode-pid
        :caller/extension-host-pid (when vscode-pid
-                                    (some (fn [[pid ppid]]
-                                            (when (= vscode-pid ppid) pid))
-                                          ancestry))})
+                                    (or (env-extension-host-pid env vscode-pid)
+                                        (ancestry-extension-host-pid ancestry vscode-pid)))})
     {:caller/env-window-id (get env window-id-env)}))
 
 (defn caller-window-id
@@ -93,7 +120,7 @@
   (cond
     extension-host-pid (str "the window whose extension host is pid " extension-host-pid)
     vscode-pid (str "an extension host of VS Code pid " vscode-pid
-                    " among this process's ancestors, and there is none")
+                    " in " extension-host-env " or among this process's ancestors, and there is none")
     (contains? search :caller/vscode-pid) (str "an extension host, but VS Code's main process isn't in"
                                                " the environment, VSCODE_PID")
     env-window-id (str "the window " window-id-env " names, " env-window-id)
