@@ -83,7 +83,7 @@
   [(live-entry "joyride" "ws-a" own-pid)
    (live-entry "calva-backseat-driver" "ws-a" own-pid)
    (live-entry "joyride" "ws-b" parent-pid)
-   (live-entry "joyride" "ws-c" 1)])
+   (live-entry "joyride" "ws-c" parent-pid)])
 
 (def ext-host-env
   {"VSCODE_CRASH_REPORTER_PROCESS_TYPE" "extensionHost"
