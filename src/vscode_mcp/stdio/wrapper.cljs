@@ -115,19 +115,20 @@
    the wrapper's server there, and the host of its entry. `:give-up-message` says what
    was looked for."
   [script-name]
-  (let [search (window-lookup/current-caller-search)]
+  (let [search (window-lookup/current-caller-search)
+        read-entries #(window-lookup/read-caller-entries search script-name)]
     (log-stderr :info "Looking for the caller's window:" (window-lookup/caller-search-text search))
     {:port-source (fn []
-                    (window-lookup/caller-window-port+ (window-lookup/read-live-entries)
+                    (window-lookup/caller-window-port+ (read-entries)
                                                        search
                                                        script-name
                                                        read-port-from-file))
      :settled-without-window? (fn []
                                 (window-lookup/settled-without-window?
-                                 (window-lookup/read-live-entries) search script-name))
+                                 (read-entries) search script-name))
      :give-up-message (fn []
                         (window-lookup/failure-message
-                         (window-lookup/read-live-entries) search script-name))}))
+                         (read-entries) search script-name))}))
 
 (defn- handle-stdin
   [^js stdin ^js socket & [{:keys [initial-buffer]}]]

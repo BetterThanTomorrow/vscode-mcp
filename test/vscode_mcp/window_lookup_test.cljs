@@ -164,7 +164,13 @@
         "VSCODE_MCP_WINDOW_ID comes before the working directory")
     (is (= {:caller/vscode-pid 100 :caller/extension-host-pid 38}
            (sut/caller-search [[38 100]] ext-host-env here))
-        "Under an extension host, the working directory isn't used")
+        "Under an extension host that is found, the working directory isn't used")
+    (is (= (assoc here :caller/vscode-pid 100 :caller/extension-host-pid nil)
+           (sut/caller-search [[50 1] [1 nil]] ext-host-env here))
+        "Under an extension host that isn't found, the working directory is used too")
+    (is (= {:caller/vscode-pid 100 :caller/extension-host-pid nil}
+           (sut/caller-search [[50 1] [1 nil]] ext-host-env {:caller/working-dir nil :caller/platform "linux"}))
+        "Under an extension host that isn't found, without a working directory, there is nothing more")
     (is (= {:caller/env-window-id nil}
            (sut/caller-search unread {} {:caller/working-dir nil :caller/platform "linux"}))
         "Without a working directory there is nothing to look for")))
@@ -192,12 +198,16 @@
         folder (path/join tmp "project")
         link (path/join tmp "link")]
     (try
-      (fs/mkdirSync folder)
+      (fs/mkdirSync (path/join folder "sub") #js {:recursive true})
       (fs/symlinkSync folder link "junction")
       (is (= (sut/real-path folder) (sut/real-path link))
           "A symlinked folder is its target")
-      (is (= (sut/real-path folder) (sut/real-path (path/join link ".." "project")))
+      (is (= (sut/real-path (path/join folder "sub")) (sut/real-path (path/join link "sub")))
           "A path through a symlink is the path it leads to")
+      (when (= "win32" js/process.platform)
+        (is (= (sut/real-path folder)
+               (sut/real-path (str (string/lower-case (subs folder 0 1)) (subs folder 1))))
+            "A lowercase drive letter, as VS Code's fsPath gives it, is the same folder"))
       (let [other-case (string/upper-case folder)]
         (when (fs/existsSync other-case)
           (is (= (sut/real-path folder) (sut/real-path other-case))
@@ -381,3 +391,44 @@
         "The live windows are listed with their first folder")
     (is (re-find #"joyride  ws-none  no folder" message))
     (is (not (re-find #"ws-s" message)))))
+
+(deftest with-real-folders-test
+  (let [resolved (atom [])
+        real-path (fn [p]
+                    (swap! resolved conj p)
+                    (str "/real" p))
+        raw (mapv #(dissoc % :entry/real-folder) folder-entries)]
+    (is (= ["/real/p" "/real/p/b" nil nil]
+           (map :entry/real-folder (sut/with-real-folders raw here "joyride-mcp-server.js" real-path))))
+    (is (= ["/p" "/p/b"] @resolved)
+        "Only the folders of the wrapper's own server are resolved")
+    (reset! resolved [])
+    (is (= [raw raw]
+           [(sut/with-real-folders raw {:caller/vscode-pid 100 :caller/extension-host-pid 38}
+              "joyride-mcp-server.js" real-path)
+            (sut/with-real-folders raw {:caller/env-window-id "ws-b"} "joyride-mcp-server.js" real-path)]))
+    (is (empty? @resolved)
+        "Without a working directory to look by, nothing is resolved")))
+
+(def unfound-host-search
+  (assoc here :caller/vscode-pid 100 :caller/extension-host-pid nil))
+
+(deftest unfound-extension-host-working-dir-test
+  (is (= 11 (get-in (sut/target folder-entries unfound-host-search "joyride-mcp-server.js")
+                    [:target/entry :pid]))
+      "Under an extension host that isn't found, the working directory finds the window")
+  (is (nil? (sut/target (conj folder-entries (assoc (second folder-entries) :windowId "ws-b2" :pid 14))
+                        unfound-host-search
+                        "joyride-mcp-server.js"))
+      "Two entries with the same deepest folder are no choice there either")
+  (is (false? (sut/settled-without-window? [] unfound-host-search "joyride-mcp-server.js"))
+      "Under an extension host, the working directory's entry may still come")
+  (is (re-find #"extension host of VS Code pid 100 .* there is none, then the one window whose folder is the working directory, /p/b/src"
+               (sut/caller-search-text unfound-host-search))
+      "The text says both what was looked for and what was looked for then")
+  (let [message (sut/failure-message folder-entries
+                                     (assoc unfound-host-search :caller/working-dir "/q")
+                                     "joyride-mcp-server.js")]
+    (is (re-find #"No window found for joyride.*pid 100.*/q.*first folder counts" message))
+    (is (re-find #"joyride  ws-b  /p/b" message)
+        "The live windows are listed with their first folder")))
