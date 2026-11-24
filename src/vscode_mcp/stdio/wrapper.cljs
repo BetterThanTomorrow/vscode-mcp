@@ -124,7 +124,7 @@
                                                        read-port-from-file))
      :settled-without-window? (fn []
                                 (window-lookup/settled-without-window?
-                                 (window-lookup/read-live-entries) search))
+                                 (window-lookup/read-live-entries) search script-name))
      :give-up-message (fn []
                         (window-lookup/failure-message
                          (window-lookup/read-live-entries) search script-name))}))

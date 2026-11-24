@@ -1,7 +1,8 @@
 (ns vscode-mcp.stdio.window-lookup
-  "Finds the window the stdio wrapper runs in, from its process ancestry, its
-   environment and the window registry. The same rule as `bb list` and `bb mcp`
-   in the registry home's `scripts/list_registry.clj`."
+  "Finds the window the stdio wrapper runs in, from its environment, its process
+   ancestry and the window registry, by the same rule as `bb list` and `bb mcp` in the
+   registry home's `scripts/list_registry.clj`. Only the wrapper takes the last step:
+   outside every window, the window whose first folder holds its working directory."
   (:require
    ["child_process" :as child-process]
    ["fs" :as fs]
@@ -134,21 +135,36 @@
           (when (= vscode-pid ppid) pid))
         ancestry))
 
+(defn- extension-host-search
+  [ancestry env]
+  (let [vscode-pid (some-> (get env "VSCODE_PID") parse-long)]
+    {:caller/vscode-pid vscode-pid
+     :caller/extension-host-pid (when vscode-pid
+                                  (or (env-extension-host-pid env vscode-pid)
+                                      (ancestry-extension-host-pid (force ancestry) vscode-pid)))}))
+
 (defn caller-search
   "What identifies the caller's window. Under an extension host, which VS Code marks
    in the environment it passes down, the extension host is the one
    `VSCODE_MCP_EXTENSION_HOST` names for VS Code's main process, `VSCODE_PID`, or else
    the nearest ancestor whose parent is that process. Otherwise it is the window
-   `VSCODE_MCP_WINDOW_ID` names. `ancestry` may be a delay, forced only when the
-   environment names no extension host."
-  [ancestry env]
-  (if (= "extensionHost" (get env "VSCODE_CRASH_REPORTER_PROCESS_TYPE"))
-    (let [vscode-pid (some-> (get env "VSCODE_PID") parse-long)]
-      {:caller/vscode-pid vscode-pid
-       :caller/extension-host-pid (when vscode-pid
-                                    (or (env-extension-host-pid env vscode-pid)
-                                        (ancestry-extension-host-pid (force ancestry) vscode-pid)))})
-    {:caller/env-window-id (get env registry/window-id-env)}))
+   `VSCODE_MCP_WINDOW_ID` names, or else the window whose folder holds `working-dir`, a
+   real path compared by `platform`'s rules. `ancestry` may be a delay, forced only when
+   the environment names no extension host."
+  [ancestry env {:caller/keys [working-dir platform]}]
+  (cond
+    (= "extensionHost" (get env "VSCODE_CRASH_REPORTER_PROCESS_TYPE"))
+    (extension-host-search ancestry env)
+
+    (get env registry/window-id-env)
+    {:caller/env-window-id (get env registry/window-id-env)}
+
+    working-dir
+    {:caller/working-dir working-dir
+     :caller/platform platform}
+
+    :else
+    {:caller/env-window-id nil}))
 
 (defn caller-window-id
   "windowId of the caller's window among live `entries`, or nil."
@@ -160,7 +176,7 @@
 
 (defn caller-search-text
   "What `search` looked for, for a message."
-  [{:caller/keys [vscode-pid extension-host-pid env-window-id] :as search}]
+  [{:caller/keys [vscode-pid extension-host-pid env-window-id working-dir] :as search}]
   (cond
     extension-host-pid (str "the window whose extension host is pid " extension-host-pid)
     vscode-pid (str "an extension host of VS Code pid " vscode-pid
@@ -168,15 +184,10 @@
     (contains? search :caller/vscode-pid) (str "an extension host, but VS Code's main process isn't in"
                                                " the environment, VSCODE_PID")
     env-window-id (str "the window " registry/window-id-env " names, " env-window-id)
+    working-dir (str "the one window whose folder is the working directory, " working-dir
+                     ", or holds it. Only a window's first folder counts")
     :else (str "a VS Code extension host among this process's ancestors, or "
                registry/window-id-env ", and there is neither")))
-
-(defn settled-without-window?
-  "True when waiting can't bring a window: not under an extension host, or under one
-   that isn't among the ancestors, and no live entry for the variable's window."
-  [entries {:caller/keys [extension-host-pid] :as search}]
-  (and (nil? extension-host-pid)
-       (nil? (caller-window-id entries search))))
 
 ;; The wrapper's own server
 
@@ -190,10 +201,47 @@
   [script-name entry]
   (= script-name (file-name (get-in entry [:mcp :wrapperPath]))))
 
-(defn target
-  "The caller's window among live `entries`, and the entry of the wrapper's own server in it.
-   Under an extension host, the entry must have its pid too: another window on the same
-   workspace shares the windowId."
+(defn real-path
+  "`p` with symlinks resolved and in the letter case on disk, or `p` made absolute when it
+   doesn't exist."
+  [p]
+  (try
+    (fs/realpathSync.native p)
+    (catch :default _
+      (path/resolve p))))
+
+(defn folder-distance
+  "How many folders `dir` lies below `folder`: 0 when it is `folder`, nil when it is outside
+   it. The paths follow `platform`'s rules, with letter case ignored on Windows."
+  [platform folder dir]
+  (let [win32? (= "win32" platform)
+        ^js path-module (if win32? path/win32 path/posix)
+        comparable (fn [p] (cond-> p win32? string/lower-case))
+        rel (.relative path-module (comparable folder) (comparable dir))
+        sep (.-sep path-module)]
+    (when-not (or (.isAbsolute path-module rel)
+                  (= ".." rel)
+                  (string/starts-with? rel (str ".." sep)))
+      (count (remove string/blank? (string/split rel sep))))))
+
+(defn- working-dir-entry
+  "The entry of the wrapper's own server whose `:entry/real-folder` is the deepest folder
+   holding `working-dir`, or nil when none holds it or two hold it equally deep."
+  [entries {:caller/keys [working-dir platform]} script-name]
+  (let [by-distance (->> entries
+                         (filter #(own-server? script-name %))
+                         (keep (fn [{:entry/keys [real-folder] :as entry}]
+                                 (when-let [distance (when real-folder
+                                                       (folder-distance platform real-folder working-dir))]
+                                   [distance entry])))
+                         (group-by first))
+        nearest (when (seq by-distance)
+                  (apply min (keys by-distance)))
+        [[_ entry] & more] (get by-distance nearest)]
+    (when-not more
+      entry)))
+
+(defn- window-target
   [entries {:caller/keys [extension-host-pid] :as search} script-name]
   (when-let [window-id (caller-window-id entries search)]
     {:target/window-id window-id
@@ -203,6 +251,25 @@
                                          (= extension-host-pid (:pid %))))
                             %)
                          entries)}))
+
+(defn target
+  "The caller's window among live `entries`, and the entry of the wrapper's own server in it.
+   Under an extension host, the entry must have its pid too: another window on the same
+   workspace shares the windowId. From the working directory, it is the entry that matched."
+  [entries {:caller/keys [working-dir] :as search} script-name]
+  (if working-dir
+    (when-let [entry (working-dir-entry entries search script-name)]
+      {:target/window-id (:windowId entry)
+       :target/entry entry})
+    (window-target entries search script-name)))
+
+(defn settled-without-window?
+  "True when waiting can't bring a window: not under an extension host, or under one
+   that isn't among the ancestors, and no live entry for the variable's window or the
+   working directory."
+  [entries {:caller/keys [extension-host-pid] :as search} script-name]
+  (and (nil? extension-host-pid)
+       (nil? (target entries search script-name))))
 
 (defn caller-window-port+
   "Promise of `{:port … :host …}` for the wrapper's own server in the caller's window: the
@@ -218,21 +285,23 @@
       (js/Promise.resolve nil))))
 
 (defn- window-line
-  [{:keys [serverName windowId workspaceRoot]}]
-  (string/join "  " [serverName windowId (or workspaceRoot "no folder")]))
+  [folder-key {:keys [serverName windowId] :as entry}]
+  (string/join "  " [serverName windowId (or (get entry folder-key) "no folder")]))
 
 (defn failure-message
-  "Why the wrapper found nothing to connect to, with the live windows of its server."
-  [entries search script-name]
+  "Why the wrapper found nothing to connect to, with the live windows of its server, by
+   first folder when the working directory looked for one."
+  [entries {:caller/keys [working-dir] :as search} script-name]
   (let [own (filterv #(own-server? script-name %) entries)
-        server (or (:serverName (first own)) script-name)]
-    (if-let [window-id (caller-window-id entries search)]
+        server (or (:serverName (first own)) script-name)
+        folder-key (if working-dir :workspaceFolder :workspaceRoot)]
+    (if-let [window-id (:target/window-id (target entries search script-name))]
       (str "Found the window " window-id ", but no live " server " entry in it.")
       (str "No window found for " server ". Looked for " (caller-search-text search)
            ". Give the wrapper the port file of the window to connect to."
            " An ECA entry the extension manages is rewritten on every start;"
            " the extension's ECA auto-registration setting turns that off. Live windows:\n"
-           (string/join "\n" (map window-line own))))))
+           (string/join "\n" (map #(window-line folder-key %) own))))))
 
 ;; Registry
 
@@ -244,8 +313,14 @@
         (when-let [updated (some-> (:updatedAt entry) js/Date.parse)]
           (< (- now-ms updated) ttl-ms)))))
 
+(defn- with-real-folder
+  [{:keys [workspaceFolder] :as entry}]
+  (cond-> entry
+    workspaceFolder (assoc :entry/real-folder (real-path workspaceFolder))))
+
 (defn read-live-entries
-  "Live entries in the registry's windows directory."
+  "Live entries in the registry's windows directory, each with its `workspaceFolder` as a
+   real path in `:entry/real-folder`."
   []
   (let [dir (registry/default-dir)
         now-ms (js/Date.now)]
@@ -257,10 +332,20 @@
                     (js->clj (js/JSON.parse (fs/readFileSync (path/join dir %) "utf8"))
                              :keywordize-keys true)
                     (catch :default _ nil)))
-           (filterv #(live? % now-ms))))))
+           (filter #(live? % now-ms))
+           (mapv with-real-folder)))))
+
+(defn- real-working-dir
+  "This process's working directory as a real path, or nil when it is gone."
+  []
+  (try
+    (real-path (js/process.cwd))
+    (catch :default _ nil)))
 
 (defn current-caller-search
   "`caller-search` for this process."
   []
   (caller-search (delay (ancestry (read-process-table) js/process.pid))
-                 (into {} (map vec) (js/Object.entries (.-env js/process)))))
+                 (into {} (map vec) (js/Object.entries (.-env js/process)))
+                 {:caller/working-dir (real-working-dir)
+                  :caller/platform js/process.platform}))
