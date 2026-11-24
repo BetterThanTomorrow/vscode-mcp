@@ -41,11 +41,13 @@
 
    Never throws past the promise boundary. Activates the ECA extension before
    any read/write. Server key is `:cursor/server-name` (base name, not the
-   generation-suffixed Cursor name). Writes portable args when possible: wrapper
-   and port under `$HOME` as `${env:HOME}/...` (wrapper prefers optional
-   `:cursor/wrapper-path`, e.g. consumer `~/.config/...` copy)."
+   generation-suffixed Cursor name). The entry loads the wrapper (optional
+   `:cursor/wrapper-path`, else the extension's copy) through
+   `eca-config/desired-entry`, and names the port file and host only when
+   `:registry/enabled?` is false."
   [{:cursor/keys [server-name script-relative-path wrapper-path]
     :vscode/keys [extension-context]
+    :registry/keys [enabled?]
     :server/keys [port-file-uri host]}]
   (-> (p/let [root-uri (workspace-root-uri)
               ^js ext (vscode/extensions.getExtension eca-extension-id)]
@@ -64,10 +66,13 @@
                                        (cursor-config/wrapper-script-path
                                         {:vscode/extension-context extension-context
                                          :cursor/script-relative-path script-relative-path}))
-                  portable-wrapper (eca-config/home-env-path resolved-wrapper (os/homedir))
-                  port-abs (some-> port-file-uri (unchecked-get "fsPath"))
-                  portable-port (eca-config/home-env-path port-abs (os/homedir))
-                  desired (eca-config/desired-entry portable-wrapper portable-port host)
+                  desired (eca-config/desired-entry
+                           {:os/home-dir (os/homedir)
+                            :os/platform js/process.platform
+                            :wrapper/path resolved-wrapper
+                            :registry/enabled? enabled?
+                            :server/port-file-path (some-> port-file-uri (unchecked-get "fsPath"))
+                            :server/host host})
                   plan (eca-config/plan-config-text text server-name desired)]
             (if (= :no-op (:eca/action plan))
               {:ok true :action :no-op}

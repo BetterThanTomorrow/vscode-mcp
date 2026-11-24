@@ -91,6 +91,7 @@
                        :cursor/script-relative-path (:cursor/script-relative-path config)
                        :cursor/wrapper-path (resolve-wrapper-path config)
                        :vscode/extension-context (:vscode/extension-context config)
+                       :registry/enabled? (:registry/enabled? config)
                        :server/port-file-uri (:server/port-file-uri started-server-info)
                        :server/host (:server/host config)})]
         (when (and (not (:ok result)) on-log)

@@ -78,7 +78,7 @@ No Extension Host here. Integration proof is in consumer Extension Hosts and the
 | `vscode-mcp.port-file` | Port file under `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` + stale sweep |
 | `vscode-mcp.server` | TCP MCP socket server + port file I/O |
 | `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main). With no port argument, it connects to the caller's window |
-| `vscode-mcp.stdio.window-lookup` | The caller's window for the wrapper: process ancestry, `VSCODE_MCP_WINDOW_ID`, live entries |
+| `vscode-mcp.stdio.window-lookup` | The caller's window for the wrapper: `VSCODE_MCP_EXTENSION_HOST`, process ancestry, `VSCODE_MCP_WINDOW_ID`, the working directory, live entries |
 | `vscode-mcp.manifest` | Copilot package.json → tools/resources/skills |
 | `vscode-mcp.requests` | `handle-manifest-request` for non-`tools/call` methods |
 | `vscode-mcp.responses` | MCP response helpers |
@@ -127,7 +127,7 @@ Pass `:settings` when tools/skills use `when` clauses in `package.json` (literal
 | `register-with-cursor!+` | Start if needed, then register |
 | `update-registry!+` | Debounced refresh of `:registry/custom-data+` using live server-info |
 
-Required: `:lifecycle/wrapper-install-dir`. On every start the library installs the stdio wrapper there and uses that path for manual-setup and ECA (`${env:HOME}/...` when under home).
+Required: `:lifecycle/wrapper-install-dir`. On every start the library installs the stdio wrapper there and uses that path for manual-setup and ECA (ECA's entry finds it under `os.homedir()` when it is under home).
 
 Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}`.
 
@@ -191,9 +191,20 @@ Path is `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port`. Created 
 
 Inert until consumer passes `:mcp/auto-register-eca? true`. Gates: ECA extension `editor-code-assistant.eca` installed (activated before write), workspace folder, port file from `server-info`.
 
-Managed ECA configs use the library port file under `~/.config/vscode-mcp/port-files/`. The library does not write a workspace mirror (no `.calva` / `.joyride` MCP port file). Discovery for agents is the window registry; manual stdio configs point at the library port file path.
+The managed entry is the same on every machine. `node -e` loads the wrapper with a one-line script that joins its path segments under `os.homedir()` when it starts, and the wrapper's file name follows, which the wrapper matches against entries' `mcp.wrapperPath`. With no port file, the wrapper connects to the caller's window (see [docs/registry.md](docs/registry.md#the-callers-window)):
 
-Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match.
+```json
+"calva-backseat-driver": {
+  "command": "node",
+  "args": ["-e",
+           "require(require('path').join(require('os').homedir(),'.config','calva','backseat-driver','calva-mcp-server.js'))",
+           "calva-mcp-server.js"]
+}
+```
+
+The script holds no `$`, `"`, space or tab, so ECA's `$VAR` expansion leaves it alone and Java's `ProcessBuilder` passes it on Windows without quoting. Characters other than letters, digits and `._/:-` in the path are written as `\uXXXX` escapes. A wrapper outside the home directory is required by its absolute path, with forward slashes, and that entry names the machine. With `:registry/enabled?` false the wrapper can't find the caller's window, so the args end with the library port file's path (`fsPath`, under `~/.config/vscode-mcp/port-files/`) and the host, and the entry names the machine too. The library does not write a workspace mirror (no `.calva` / `.joyride` MCP port file). Discovery for agents is the window registry; manual stdio configs point at the library port file path.
+
+Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match. Tests: `test/vscode_mcp/eca_config_test.cljs`, and `test-bb/eca_entry_test.clj`, which starts the `node -e` command through Java's process API, as ECA does.
 
 ## Limitations
 

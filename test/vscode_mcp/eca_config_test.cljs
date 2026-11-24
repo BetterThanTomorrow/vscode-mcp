@@ -1,5 +1,6 @@
 (ns vscode-mcp.eca-config-test
   (:require
+   ["path" :as path]
    [cljs.test :refer [deftest is testing]]
    [clojure.string :as str]
    [vscode-mcp.eca-config :as sut]
@@ -15,42 +16,35 @@
        "}\n"))
 
 (def desired
-  (sut/desired-entry "/ext/dist/joyride-mcp-server.js"
-                     "/ws/.joyride/mcp-server/port"
-                     "127.0.0.1"))
+  (sut/desired-entry {:os/home-dir "/home/test"
+                      :os/platform "linux"
+                      :wrapper/path "/home/test/.config/joyride/joyride-mcp-server.js"
+                      :registry/enabled? true}))
 
 (def desired'
-  (sut/desired-entry "/ext/dist/joyride-mcp-server.js"
-                     "/ws/.joyride/mcp-server/port"
-                     "0.0.0.0"))
-
-(deftest home-env-path-test
-  (testing "under home → ${env:HOME}/..."
-    (is (= "${env:HOME}/.config/calva/backseat-driver/calva-mcp-server.js"
-           (sut/home-env-path "/Users/pez/.config/calva/backseat-driver/calva-mcp-server.js"
-                            "/Users/pez"))))
-  (testing "outside home → absolute posix unchanged"
-    (is (= "/opt/mcp/wrapper.js"
-           (sut/home-env-path "/opt/mcp/wrapper.js" "/Users/pez")))))
-
-(deftest workspace-relative-path-test
-  (testing "under workspace → relative"
-    (is (= ".calva/mcp-server/port"
-           (sut/workspace-relative-path "/ws/project/.calva/mcp-server/port"
-                                        "/ws/project"))))
-  (testing "outside workspace → absolute"
-    (is (= "/tmp/mcp/port"
-           (sut/workspace-relative-path "/tmp/mcp/port" "/ws/project")))))
+  (sut/desired-entry {:os/home-dir "/home/test"
+                      :os/platform "linux"
+                      :wrapper/path "/home/test/.config/joyride/joyride-mcp-server.js"
+                      :registry/enabled? false
+                      :server/port-file-path "/home/test/.config/vscode-mcp/port-files/joyride-ws-abc.port"
+                      :server/host "0.0.0.0"}))
 
 (defn- parse-string-keys [text]
   (js->clj (jsonc/parse text)))
 
 (deftest desired-entry-test
-  (is (= {"command" "node"
-          "args" ["/ext/dist/joyride-mcp-server.js"
-                  "/ws/.joyride/mcp-server/port"
-                  "127.0.0.1"]}
-         desired)))
+  (testing "with the window registry on, the args hold no machine-specific path"
+    (is (= {"command" "node"
+            "args" ["-e"
+                    "require(require('path').join(require('os').homedir(),'.config','calva','backseat-driver','calva-mcp-server.js'))"
+                    "calva-mcp-server.js"]}
+           (sut/desired-entry
+            {:os/home-dir "/Users/test"
+             :os/platform "darwin"
+             :wrapper/path "/Users/test/.config/calva/backseat-driver/calva-mcp-server.js"
+             :registry/enabled? true
+             :server/port-file-path "/Users/test/.config/vscode-mcp/port-files/calva-backseat-driver-ws-abc.port"
+             :server/host "127.0.0.1"})))))
 
 (deftest plan-creates-entry-from-blank-test
   (testing "missing / blank / {}"
@@ -108,20 +102,103 @@
       (is (= :no-op (:eca/action twice)))
       (is (= (:eca/text once) (:eca/text twice))))))
 
-(deftest desired-entry-portable-wiring-test
-  (testing "composes home-env-path for wrapper and port like eca/register!+"
-    (let [entry (sut/desired-entry
-                 (sut/home-env-path
-                  "/Users/test/.config/calva/backseat-driver/calva-mcp-server.js"
-                  "/Users/test")
-                 (sut/home-env-path
-                  "/Users/test/.config/vscode-mcp/port-files/calva-backseat-driver-ws-abc.port"
-                  "/Users/test")
-                 "127.0.0.1")]
-      (is (= ["${env:HOME}/.config/calva/backseat-driver/calva-mcp-server.js"
-              "${env:HOME}/.config/vscode-mcp/port-files/calva-backseat-driver-ws-abc.port"
-              "127.0.0.1"]
-             (get entry "args"))))))
+(defn- required-path
+  "Runs `script` with a stub `require` and returns the path it requires the wrapper from."
+  [script path-module home-dir]
+  (let [!required (atom nil)
+        stub-require (fn [module-name]
+                       (case module-name
+                         "path" path-module
+                         "os" #js {:homedir (constantly home-dir)}
+                         (reset! !required module-name)))]
+    ((js/Function. "require" script) stub-require)
+    @!required))
+
+(deftest wrapper-require-script-test
+  (testing "wrapper under home on POSIX: joined under os.homedir()"
+    (is (= "require(require('path').join(require('os').homedir(),'.config','calva','backseat-driver','calva-mcp-server.js'))"
+           (sut/wrapper-require-script
+            {:os/home-dir "/Users/test"
+             :os/platform "darwin"
+             :wrapper/path "/Users/test/.config/calva/backseat-driver/calva-mcp-server.js"}))))
+  (testing "wrapper under home on Windows, drive letter in another case"
+    (let [script (sut/wrapper-require-script
+                  {:os/home-dir "C:\\Users\\Test"
+                   :os/platform "win32"
+                   :wrapper/path "c:\\Users\\Test\\.config\\calva\\backseat-driver\\calva-mcp-server.js"})]
+      (is (= "require(require('path').join(require('os').homedir(),'.config','calva','backseat-driver','calva-mcp-server.js'))"
+             script))
+      (is (= "C:\\Users\\Other\\.config\\calva\\backseat-driver\\calva-mcp-server.js"
+             (required-path script path/win32 "C:\\Users\\Other"))
+          "another user's machine finds the wrapper under its own home")))
+  (testing "wrapper outside home: absolute path with forward slashes"
+    (is (= "require('/opt/mcp/calva-mcp-server.js')"
+           (sut/wrapper-require-script
+            {:os/home-dir "/home/test"
+             :os/platform "linux"
+             :wrapper/path "/opt/mcp/calva-mcp-server.js"})))
+    (is (= "require('/home/tester/calva-mcp-server.js')"
+           (sut/wrapper-require-script
+            {:os/home-dir "/home/test"
+             :os/platform "linux"
+             :wrapper/path "/home/tester/calva-mcp-server.js"}))
+        "a sibling of home that shares its prefix is outside home")
+    (is (= "require('D:/tools/mcp/calva-mcp-server.js')"
+           (sut/wrapper-require-script
+            {:os/home-dir "C:\\Users\\Test"
+             :os/platform "win32"
+             :wrapper/path "D:\\tools\\mcp\\calva-mcp-server.js"}))
+        "another drive on Windows")))
+
+(deftest wrapper-require-script-characters-test
+  (let [cases [{:os/home-dir "/home/test"
+                :os/platform "linux"
+                :wrapper/path "/home/test/my tools/it's $HOME \"q\"\tx\\y/calva-mcp-server.js"}
+               {:os/home-dir "/home/test"
+                :os/platform "linux"
+                :wrapper/path "/opt/my tools/$x/calva-mcp-server.js"}
+               {:os/home-dir "C:\\Users\\Test"
+                :os/platform "win32"
+                :wrapper/path "C:\\Users\\Test\\my tools\\it's $x\\calva-mcp-server.js"}
+               {:os/home-dir "C:\\Users\\Test"
+                :os/platform "win32"
+                :wrapper/path "C:\\Program Files\\mcp\\calva-mcp-server.js"}]]
+    (doseq [{:os/keys [home-dir platform]
+             wrapper-path :wrapper/path
+             :as script-opts} cases
+            :let [script (sut/wrapper-require-script script-opts)
+                  path-module (if (= "win32" platform) path/win32 path/posix)]]
+      (is (nil? (re-find #"[$\" \t]" script))
+          (str "no $, double quote, space or tab in " script))
+      (is (= (.normalize path-module wrapper-path)
+             (.normalize path-module (required-path script path-module home-dir)))
+          (str "the script requires " wrapper-path)))))
+
+(deftest desired-entry-registry-off-test
+  (testing "with the window registry off, the args end with the port file and the host"
+    (is (= {"command" "node"
+            "args" ["-e"
+                    "require(require('path').join(require('os').homedir(),'.config','calva','backseat-driver','calva-mcp-server.js'))"
+                    "calva-mcp-server.js"
+                    "c:\\Users\\Test\\.config\\vscode-mcp\\port-files\\calva-backseat-driver-ws-abc.port"
+                    "0.0.0.0"]}
+           (sut/desired-entry
+            {:os/home-dir "C:\\Users\\Test"
+             :os/platform "win32"
+             :wrapper/path "C:\\Users\\Test\\.config\\calva\\backseat-driver\\calva-mcp-server.js"
+             :registry/enabled? false
+             :server/port-file-path "c:\\Users\\Test\\.config\\vscode-mcp\\port-files\\calva-backseat-driver-ws-abc.port"
+             :server/host "0.0.0.0"}))))
+  (testing "blank host falls back to the default host"
+    (is (= "127.0.0.1"
+           (last (get (sut/desired-entry
+                       {:os/home-dir "/home/test"
+                        :os/platform "linux"
+                        :wrapper/path "/home/test/.config/joyride/joyride-mcp-server.js"
+                        :registry/enabled? false
+                        :server/port-file-path "/home/test/.config/vscode-mcp/port-files/joyride-ws-abc.port"
+                        :server/host nil})
+                      "args"))))))
 
 (deftest plan-pretty-prints-owned-entry-test
   (testing "blank → write with indent depth 2"
