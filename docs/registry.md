@@ -171,6 +171,8 @@ Pez authors `README.md`. Pez authors `AGENTS.md` to match this recipe.
 
 When neither finds a live entry, there is no caller's window. Under an Extension Host, `VSCODE_MCP_WINDOW_ID` is ignored because it can only be inherited there, as when a window is opened with `code` from another window's terminal. A tmux or Herdr session started from a window's terminal keeps that window's `VSCODE_MCP_WINDOW_ID`, so agents in it name the window they want.
 
+`VSCODE_MCP_EXTENSION_HOST` can be inherited too. A window opened with `code` from a process another window's Extension Host started, such as an agent's terminal, runs in the same VS Code main process, so the `VSCODE_PID` guard passes. Until the new window's own server starts and overwrites the value, the processes its Extension Host starts find the other window.
+
 The lookup is `caller-search` and `caller-window-id` in `scripts/list_registry.clj`. `bb list` reads the ancestry through Java's `ProcessHandle`, which is cheap on every OS, so it reads it every time. Tests: `test-bb/list_registry_test.clj`, `test-bb/mcp_test.clj`.
 
 ### The stdio wrapper with no port file
