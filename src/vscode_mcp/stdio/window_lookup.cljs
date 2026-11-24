@@ -71,11 +71,25 @@
   []
   (= "win32" js/process.platform))
 
-(defn- process-table-command
+(def process-table-script
+  "PowerShell that prints `pid ppid created` for each process, the creation time in
+   milliseconds since 1601. It runs in constrained language mode."
+  (str "$ProgressPreference='SilentlyContinue'; "
+       "Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate"
+       " | ForEach-Object { '{0} {1} {2:F0}' -f $_.ProcessId, $_.ParentProcessId,"
+       " $(if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() / 10000 } else { '' }) }"))
+
+(defn powershell-path
+  "Windows PowerShell's absolute path under `system-root`, or under `C:\\Windows` when it is nil."
+  [system-root]
+  (path/win32.join (or system-root "C:\\Windows") "System32" "WindowsPowerShell" "v1.0" "powershell.exe"))
+
+(defn process-table-command
+  "`[command args]` that print the process table: PowerShell on Windows, else `ps`."
   []
   (if (windows?)
-    ["powershell.exe" ["-NoProfile" "-NonInteractive" "-Command"
-                       "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $(if ($_.CreationDate) { [DateTimeOffset]::new($_.CreationDate).ToUnixTimeMilliseconds() } else { '' }) }"]]
+    [(powershell-path (unchecked-get js/process.env "SystemRoot"))
+     ["-NoProfile" "-NonInteractive" "-Command" process-table-script]]
     ["ps" ["-A" "-o" "pid=" "-o" "ppid="]]))
 
 (defn read-process-table

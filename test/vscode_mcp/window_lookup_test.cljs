@@ -1,6 +1,9 @@
 (ns vscode-mcp.window-lookup-test
   (:require
+   ["child_process" :as child-process]
+   ["path" :as path]
    [cljs.test :refer [deftest is testing]]
+   [clojure.string :as string]
    [vscode-mcp.stdio.window-lookup :as sut]))
 
 (def ext-host-env
@@ -11,9 +14,9 @@
   (is (= {43531 {:ppid 43528 :created nil}
           1 {:ppid 0 :created nil}}
          (sut/parse-process-table "  43531 43528\n    1     0\n\n")))
-  (is (= {8 {:ppid 4 :created 1763830000123}}
-         (sut/parse-process-table "8 4 1763830000123\r\n"))
-      "Windows lines carry a creation time in Unix milliseconds")
+  (is (= {8 {:ppid 4 :created 13406303600123}}
+         (sut/parse-process-table "8 4 13406303600123\r\n"))
+      "Windows lines carry a creation time in milliseconds since 1601")
   (is (= {4 {:ppid 0 :created nil}}
          (sut/parse-process-table "4 0 \r\n"))
       "A process without a creation time has none"))
@@ -38,6 +41,46 @@
   (is (= {50 {:ppid 40}}
          (sut/proc-chain {50 "50 (bb) S 40 1 1"} 50))
       "A stat that can't be read ends the chain"))
+
+(deftest powershell-path-test
+  (is (= "D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+         (sut/powershell-path "D:\\Win"))
+      "PowerShell is found under the system root, not looked up by name")
+  (is (= "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+         (sut/powershell-path nil))
+      "Without SystemRoot, the system root is C:\\Windows"))
+
+(def constrained-language-prefix
+  "$ExecutionContext.SessionState.LanguageMode='ConstrainedLanguage'; ")
+
+(defn- run-constrained
+  "Output of `script` run by the process-table command's PowerShell in constrained language mode."
+  [script]
+  (let [[cmd args] (sut/process-table-command)]
+    (child-process/execFileSync cmd
+                                (clj->js (conj (pop args) (str constrained-language-prefix script)))
+                                #js {:encoding "utf8"
+                                     :windowsHide true})))
+
+(deftest read-process-table-test
+  (if (= "win32" js/process.platform)
+    (let [[cmd] (sut/process-table-command)
+          table (sut/parse-process-table (run-constrained sut/process-table-script))
+          {:keys [ppid created]} (get table js/process.pid)
+          parent-created (get-in table [js/process.ppid :created])]
+      (is (path/isAbsolute cmd)
+          "PowerShell is started by its absolute path")
+      (is (= "constrained"
+             (string/trim (run-constrained "try { [System.Console]::WriteLine('full') } catch { 'constrained' }")))
+          "The prefix puts the rest of the command in constrained language mode")
+      (is (= js/process.ppid ppid)
+          "In constrained language mode, the read finds this process's parent")
+      (is (and (number? created)
+               (number? parent-created)
+               (<= parent-created created))
+          "The creation times put the parent first"))
+    (is (= js/process.ppid (get-in (sut/read-process-table) [js/process.pid :ppid]))
+        "The read finds this process's parent")))
 
 (deftest ancestry-test
   (is (= [[50 40] [40 38] [38 100] [100 1] [1 0]]
