@@ -23,15 +23,6 @@
   [config]
   (or (:skills/dir config) (default-dir)))
 
-(defn- folder-name?
-  "Whether `s` names a folder directly under another one."
-  [s]
-  (and (string? s)
-       (not (string/blank? s))
-       (not (contains? #{"." ".."} s))
-       (= s (path/basename s))
-       (not (string/includes? s "\\"))))
-
 (defn- temporary-name?
   "Whether `entry` is a skill folder being put in place, by this install or another one."
   [entry]
@@ -51,7 +42,7 @@
   [manifest]
   (->> (manifest/get-resources manifest)
        (keep (fn [{skill-name :name :keys [skill-path]}]
-               (when (folder-name? skill-name)
+               (when (manifest/folder-name? skill-name)
                  {:skill/name skill-name
                   :skill/source-dir (path/dirname skill-path)})))
        (vec)))
@@ -87,18 +78,40 @@
        (string/includes? entry (str "." temporary-marker))
        (< (+ (max (.-mtimeMs stat) (.-ctimeMs stat)) leftover-age-ms) now)))
 
+(def ^:private aside-suffix
+  "What the name of a skill moved aside, to make room for its new copy, ends with."
+  ".old")
+
+(defn- aside-skill-name
+  "The name of the skill that `entry` holds when it is a skill moved aside, or nil."
+  [entry]
+  (when (string/ends-with? entry aside-suffix)
+    (let [marker-index (string/last-index-of entry (str "." temporary-marker))]
+      (when (and marker-index (< 1 marker-index))
+        (subs entry 1 marker-index)))))
+
+(defn- only-copy?
+  "Whether `entry` in `extension-dir` is a skill moved aside that is the only copy of a
+   skill in `declared`: its folder is missing, since putting it back failed."
+  [extension-dir declared entry]
+  (when-let [skill-name (aside-skill-name entry)]
+    (and (contains? declared skill-name)
+         (nil? (lstat (path/join extension-dir skill-name))))))
+
 (defn- removal-steps
   "The steps that remove what `extension-dir` holds beside the skills named in
    `declared`: what earlier installs left behind, and the entries the manifest no longer
-   declares. When `extension-dir` is itself a link, to a folder that may hold more, it
-   leaves those entries."
+   declares. A skill moved aside is left while it is the only copy of its skill. When
+   `extension-dir` is itself a link, to a folder that may hold more, it leaves those
+   entries."
   [extension-dir declared now]
   (let [linked? (some-> (lstat extension-dir) (.isSymbolicLink))]
     (into []
           (keep (fn [entry]
                   (let [p (path/join extension-dir entry)]
                     (cond
-                      (temporary-name? entry) (when (leftover? entry (lstat p) now)
+                      (temporary-name? entry) (when (and (leftover? entry (lstat p) now)
+                                                         (not (only-copy? extension-dir declared entry)))
                                                 [:skills/step.remove-leftover p])
                       (or linked? (contains? declared entry)) nil
                       :else [:skills/step.remove p]))))
@@ -111,7 +124,7 @@
    current time, tells what earlier installs left behind from what one in progress has
    there."
   [{:manifest/keys [name] :skills/keys [dir link? temporary-suffix now] :as manifest}]
-  (if-not (folder-name? name)
+  (if-not (manifest/folder-name? name)
     []
     (let [extension-dir (path/join dir name)
           skills (declared-skills manifest)]
@@ -152,7 +165,7 @@
     (fs/renameSync temporary dest)
     nil
     (catch :default _
-      (let [aside (str temporary ".old")]
+      (let [aside (str temporary aside-suffix)]
         (fs/renameSync dest aside)
         (try
           (fs/renameSync temporary dest)

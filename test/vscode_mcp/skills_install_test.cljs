@@ -266,6 +266,58 @@
             (is (= (skill-md "beta") (read-text (path/join root "extension" "skills" "beta" "SKILL.md")))
                 "Leaves what a left behind link pointed at")))))))
 
+(deftest install-keeps-the-only-copy-of-a-skill
+  (with-temp-dir
+    (fn [root]
+      (let [home (path/join root "skills")
+            manifest (assoc (fixture-manifest! root "my-ext" two-skills) :skills/dir home :skills/link? false)
+            extension-dir (path/join home "my-ext")
+            aside (path/join extension-dir ".alpha.installing-5678.old")
+            later (+ (js/Date.now) 120000)]
+        (sut/install! manifest)
+        (fs/renameSync (path/join extension-dir "alpha") aside)
+        (let [result (sut/install! (assoc manifest :skills/now later))]
+          (is (= [] (:skills/removed result)))
+          (is (fs/existsSync (path/join aside "SKILL.md"))
+              "An old skill moved aside is left while its skill's folder is missing")
+          (is (fs/existsSync (path/join extension-dir "alpha" "SKILL.md"))
+              "and the skill is put in place again"))
+        (let [result (sut/install! (assoc manifest :skills/now later))]
+          (is (= [aside] (:skills/removed result))
+              "Once the skill's folder is there, the old skill moved aside is removed")
+          (is (= #{"alpha" "beta"} (entries extension-dir))))))))
+
+(deftest a-failed-rename-back-keeps-the-old-skill-aside
+  (with-temp-dir
+    (fn [root]
+      (let [home (path/join root "skills")
+            manifest (assoc (fixture-manifest! root "my-ext" two-skills) :skills/dir home :skills/link? false)
+            extension-dir (path/join home "my-ext")
+            dest (path/join extension-dir "alpha")
+            rename-sync (.-renameSync fs)]
+        (sut/install! manifest)
+        (fs/writeFileSync (path/join dest "SKILL.md") "The old alpha")
+        (set! (.-renameSync fs)
+              (fn [from to]
+                (if (= dest to)
+                  (throw (js/Error. (str "Can't rename " from)))
+                  (rename-sync from to))))
+        (let [result (try
+                       (sut/install! manifest)
+                       (finally
+                         (set! (.-renameSync fs) rename-sync)))
+              asides (filter #(string/ends-with? % ".old") (entries extension-dir))]
+          (is (= [(path/join extension-dir "beta")] (:skills/installed result))
+              "The other skill is installed")
+          (is (= 1 (count (:skills/failures result)))
+              "Putting the skill in place failed")
+          (is (not (fs/existsSync dest))
+              "Putting the old skill back failed too")
+          (is (= 1 (count asides))
+              "The old skill is kept aside")
+          (is (= "The old alpha" (read-text (path/join extension-dir (first asides) "SKILL.md")))
+              "with what it held"))))))
+
 (deftest install-leaves-the-entries-of-a-linked-extension-folder
   (with-temp-dir
     (fn [root]

@@ -270,6 +270,16 @@
             (some-> (find-skill-by-name resources name)
                     (read-skill-sibling-resource uri rel-path)))))))
 
+(defn folder-name?
+  "Whether `s` names a folder directly under another one: what an extension's or a
+   skill's name must be for its skills to be installed in the skills home."
+  [s]
+  (and (string? s)
+       (not (string/blank? s))
+       (not (contains? #{"." ".."} s))
+       (= s (path/basename s))
+       (not (string/includes? s "\\"))))
+
 (def ^:private catalog-pointer
   "Tools are listed by `tools/list`. Skills are listed by `resources/list` and `skill://index.json` (read with `resources/read`).")
 
@@ -280,9 +290,10 @@
   (let [extension-dir (str "~/.config/vscode-mcp/skills/" extension-name)]
     (str "The skills this server publishes are installed in `" extension-dir "/`, one folder per skill, and put there again at every server start. "
          "If your harness doesn't give you this server's skills as skills, offer the user to link the ones that `resources/list` lists into the harness's skills folder, and link them when the user says yes. "
-         "For Claude Code, that is `ln -s " extension-dir "/<skill> ~/.claude/skills/<skill>` for each skill's name. "
-         "On Windows, make a junction instead, since `ln -s` in Git Bash makes a copy: "
-         "`New-Item -ItemType Junction -Path $HOME\\.claude\\skills\\<skill> -Target $HOME\\.config\\vscode-mcp\\skills\\" extension-name "\\<skill>`. "
+         "For Claude Code, that is `mkdir -p ~/.claude/skills && ln -s " extension-dir "/<skill> ~/.claude/skills/<skill>` for each skill's name. "
+         "On Windows, make a junction instead, since `ln -s` in Git Bash makes a copy. "
+         "This command is PowerShell, and Claude Code's shell on Windows is Git Bash, so run it through `powershell -Command '...'`, in single quotes so that `$HOME` is left to PowerShell: "
+         "`New-Item -ItemType Directory -Force -Path $HOME\\.claude\\skills; New-Item -ItemType Junction -Path $HOME\\.claude\\skills\\<skill> -Target $HOME\\.config\\vscode-mcp\\skills\\" extension-name "\\<skill>`. "
          "Where such a link is already there, there's nothing to do: the skill behind it is kept current. "
          "Where an entry by the skill's name is there and isn't a link into `~/.config/vscode-mcp/skills/`, leave it, and tell the user it may be an older copy of the skill.")))
 
@@ -292,12 +303,13 @@
 (defn build-server-instructions
   "Returns initialize `instructions`: non-blank `:base-text`, a catalog pointer, where
    the skills are installed and what to do with them, when `:skills?` and the
-   extension's name `:extension-name` isn't blank, and where the window registry is."
+   extension's name `:extension-name` is one the install installs skills under, and
+   where the window registry is."
   [{:keys [base-text extension-name skills?]}]
   (string/join "\n\n" (remove string/blank? [base-text
                                              catalog-pointer
                                              (when (and skills?
-                                                        (not (string/blank? extension-name)))
+                                                        (folder-name? extension-name))
                                                (skills-home-text extension-name))
                                              registry-pointer])))
 

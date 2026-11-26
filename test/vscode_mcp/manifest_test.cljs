@@ -178,17 +178,22 @@
           "Names the extension's folder in the skills home")
       (is (string/includes? (nth paragraphs 2) "offer the user to link")
           "Has the agent offer the link")
-      (is (string/includes? (nth paragraphs 2) "`ln -s ~/.config/vscode-mcp/skills/my-ext/<skill> ~/.claude/skills/<skill>`")
-          "Gives the Claude Code command")
-      (is (string/includes? (nth paragraphs 2) "-Target $HOME\\.config\\vscode-mcp\\skills\\my-ext\\<skill>`")
-          "Gives the Windows junction")
+      (is (string/includes? (nth paragraphs 2) "`mkdir -p ~/.claude/skills && ln -s ~/.config/vscode-mcp/skills/my-ext/<skill> ~/.claude/skills/<skill>`")
+          "Gives the Claude Code command, which makes the skills folder when it is missing")
+      (is (string/includes? (nth paragraphs 2) "`New-Item -ItemType Directory -Force -Path $HOME\\.claude\\skills; New-Item -ItemType Junction -Path $HOME\\.claude\\skills\\<skill> -Target $HOME\\.config\\vscode-mcp\\skills\\my-ext\\<skill>`")
+          "Gives the Windows junction, which makes the skills folder when it is missing")
+      (is (string/includes? (nth paragraphs 2) "Claude Code's shell on Windows is Git Bash, so run it through `powershell -Command '...'`")
+          "Says that the Windows command runs in PowerShell")
       (is (string/includes? (nth paragraphs 2) "isn't a link into `~/.config/vscode-mcp/skills/`, leave it")
           "Leaves an entry that isn't such a link")
       (is (string/includes? (nth paragraphs 3) "`~/.config/vscode-mcp/registry`")
           "Says where the registry is"))
-    (testing "Without skills, or without a name"
+    (testing "Without skills, or without a name the install installs skills under"
       (doseq [opts [{:extension-name "my-ext" :skills? false}
                     {:extension-name " " :skills? true}
+                    {:extension-name ".." :skills? true}
+                    {:extension-name "publisher/my-ext" :skills? true}
+                    {:extension-name "publisher\\my-ext" :skills? true}
                     {:skills? true}]]
         (let [text (sut/build-server-instructions opts)]
           (is (not (string/includes? text "vscode-mcp/skills"))
