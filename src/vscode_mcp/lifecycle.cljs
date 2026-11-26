@@ -72,10 +72,11 @@
 
 (defn changed-server-state
   "Returns the server's `state` with `changes` in it. A server that begins to start has
-   no error from an earlier start."
+   no error from an earlier start, and none from an earlier registration."
   [state changes]
   (cond-> (merge state changes)
-    (:server/starting? changes) (assoc :server/error nil)))
+    (:server/starting? changes) (assoc :server/error nil
+                                       :lifecycle/registration-error nil)))
 
 (defn port-file-present?
   [server-info]

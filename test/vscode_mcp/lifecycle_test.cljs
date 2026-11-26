@@ -113,7 +113,13 @@
     (is (= "EADDRINUSE"
            (:server/error (sut/changed-server-state (assoc sut/stopped-server-state :server/error "EADDRINUSE" :server/starting? true)
                                                     {:server/starting? false})))
-        "and keeps the error of a start that just failed")))
+        "and keeps the error of a start that just failed"))
+  (testing "a server that begins to start has no error from an earlier registration"
+    (is (nil? (:lifecycle/registration-error
+               (sut/changed-server-state (assoc sut/stopped-server-state
+                                                :lifecycle/registration-error {:reason :port-file-not-ready})
+                                         {:server/starting? true})))
+        "so a registration that fails the same way again is a change, and is reported")))
 
 (deftest registration-error-test
   (is (= {:reason :cursor-api-unavailable}

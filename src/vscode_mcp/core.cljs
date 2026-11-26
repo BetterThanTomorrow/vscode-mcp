@@ -310,6 +310,8 @@
    registration then fails. Returns a promise of the server's state."
   [config]
   (registry/set-extension-host-env!)
+  ;; A registration that fails as the one before it did is reported again
+  (change-server-state! config {:lifecycle/registration-error nil})
   (if-not (cursor/cursor-mcp-available?)
     (p/resolved (registration-failed! config {:reason :cursor-api-unavailable}))
     (-> (p/let [state (lifecycle-state config)
