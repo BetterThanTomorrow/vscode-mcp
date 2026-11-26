@@ -2,7 +2,7 @@
   (:require
    ["fs" :as fs]
    ["path" :as path]
-   [cljs.test :refer [async deftest is testing]]
+   [cljs.test :refer [deftest is testing]]
    [clojure.string :as string]
    [promesa.core :as p]
    [vscode-mcp.manifest :as manifest]
@@ -89,7 +89,7 @@
           (is (nil? (:skill-path (first resources)))))))
     (js/console.warn "Skipping resources-list-test: fixture not found")))
 
-(deftest resources-read-test
+(deftest ^:async resources-read-test
   (if-let [extension-path (test-fixture-extension-path)]
     (let [ctx (mock-skill-context extension-path)]
       (testing "reads skill via manifest"
@@ -111,14 +111,11 @@
           (is (string/includes? (get-in res [:result :contents 0 :text]) "Test Skill"))))
 
       (testing "async hook Promise"
-        (async done
-          (-> (sut/handle-manifest-request ctx {:method "resources/read" :id 4 :params {:uri "custom://x"}}
-                                             {:settings {}
-                                              :read-resource+ (fn [_ uri _]
-                                                                (p/resolved {:contents [{:uri uri :text "async"}]}))})
-              (p/then (fn [res]
-                        (is (= "async" (get-in res [:result :contents 0 :text])))
-                        (done)))))))
+        (let [res (await (sut/handle-manifest-request ctx {:method "resources/read" :id 4 :params {:uri "custom://x"}}
+                                                      {:settings {}
+                                                       :read-resource+ (fn [_ uri _]
+                                                                         (p/resolved {:contents [{:uri uri :text "async"}]}))}))]
+          (is (= "async" (get-in res [:result :contents 0 :text]))))))
     (js/console.warn "Skipping resources-read-test: fixture not found")))
 
 (deftest resource-templates-test

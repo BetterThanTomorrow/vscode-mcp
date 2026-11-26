@@ -4,7 +4,7 @@
    ["fs" :as fs]
    ["os" :as os]
    ["path" :as path]
-   [cljs.test :refer [async deftest is testing]]
+   [cljs.test :refer [deftest is testing]]
    [clojure.string :as string]
    [promesa.core :as p]
    [vscode-mcp.stdio.window-lookup :as sut]))
@@ -283,29 +283,28 @@
   (is (true? (sut/settled-without-window? entries {:caller/env-window-id nil} "joyride-mcp-server.js")))
   (is (false? (sut/settled-without-window? entries {:caller/env-window-id "ws-b"} "joyride-mcp-server.js"))))
 
-(deftest caller-window-port-test
-  (async done
-         (let [entries (update-in entries [2 :mcp] assoc
-                                  :portFilePath "/pf/joyride-ws-b.port"
-                                  :host "::")
-               read-port+ (fn [port-file]
-                            (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
-           (-> (p/let [found (sut/caller-window-port+ entries {:caller/env-window-id "ws-b"}
-                                                      "joyride-mcp-server.js" read-port+)
-                       no-entry (sut/caller-window-port+ entries {:caller/env-window-id "ws-c"}
-                                                         "joyride-mcp-server.js" read-port+)
-                       no-port (sut/caller-window-port+ (assoc-in entries [2 :mcp :portFilePath] "/pf/gone.port")
-                                                        {:caller/env-window-id "ws-b"}
-                                                        "joyride-mcp-server.js" read-port+)]
-                 (is (= {:port 4711 :host "::"} found)
-                     "The entry's host comes with the port from its port file")
-                 (is (nil? no-entry)
-                     "A window without the wrapper's server gives nothing to connect to")
-                 (is (nil? no-port)
-                     "A port file that can't be read gives nothing to connect to"))
-               (p/catch (fn [e]
-                          (is (nil? e) "The port source doesn't fail")))
-               (p/then (fn [_] (done)))))))
+(deftest ^:async caller-window-port-test
+  (let [entries (update-in entries [2 :mcp] assoc
+                           :portFilePath "/pf/joyride-ws-b.port"
+                           :host "::")
+        read-port+ (fn [port-file]
+                     (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
+    (try
+      (let [found (await (sut/caller-window-port+ entries {:caller/env-window-id "ws-b"}
+                                                  "joyride-mcp-server.js" read-port+))
+            no-entry (await (sut/caller-window-port+ entries {:caller/env-window-id "ws-c"}
+                                                     "joyride-mcp-server.js" read-port+))
+            no-port (await (sut/caller-window-port+ (assoc-in entries [2 :mcp :portFilePath] "/pf/gone.port")
+                                                    {:caller/env-window-id "ws-b"}
+                                                    "joyride-mcp-server.js" read-port+))]
+        (is (= {:port 4711 :host "::"} found)
+            "The entry's host comes with the port from its port file")
+        (is (nil? no-entry)
+            "A window without the wrapper's server gives nothing to connect to")
+        (is (nil? no-port)
+            "A port file that can't be read gives nothing to connect to"))
+      (catch :default e
+        (is (nil? e) "The port source doesn't fail")))))
 
 (deftest failure-message-test
   (let [message (sut/failure-message entries {:caller/env-window-id nil} "joyride-mcp-server.js")]
@@ -374,26 +373,25 @@
                              "win32"))
       "Windows paths match across drive-letter case"))
 
-(deftest working-dir-settling-test
+(deftest ^:async working-dir-settling-test
   (is (false? (sut/settled-without-window? folder-entries here "joyride-mcp-server.js"))
       "A matching entry is a window")
   (is (true? (sut/settled-without-window? folder-entries
                                            {:caller/working-dir "/q" :caller/platform "linux"}
                                            "joyride-mcp-server.js"))
       "With no match, the wrapper waits only the short budget")
-  (async done
-         (let [entries (assoc-in folder-entries [1 :mcp :portFilePath] "/pf/joyride-ws-b.port")
-               read-port+ (fn [port-file]
-                            (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
-           (-> (p/let [before (sut/caller-window-port+ [] here "joyride-mcp-server.js" read-port+)
-                       after (sut/caller-window-port+ entries here "joyride-mcp-server.js" read-port+)]
-                 (is (nil? before)
-                     "No entry yet, nothing to connect to")
-                 (is (= 4711 (:port after))
-                     "An entry that appears while the wrapper tries again connects"))
-               (p/catch (fn [e]
-                          (is (nil? e) "The port source doesn't fail")))
-               (p/then (fn [_] (done)))))))
+  (let [entries (assoc-in folder-entries [1 :mcp :portFilePath] "/pf/joyride-ws-b.port")
+        read-port+ (fn [port-file]
+                     (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
+    (try
+      (let [before (await (sut/caller-window-port+ [] here "joyride-mcp-server.js" read-port+))
+            after (await (sut/caller-window-port+ entries here "joyride-mcp-server.js" read-port+))]
+        (is (nil? before)
+            "No entry yet, nothing to connect to")
+        (is (= 4711 (:port after))
+            "An entry that appears while the wrapper tries again connects"))
+      (catch :default e
+        (is (nil? e) "The port source doesn't fail")))))
 
 (deftest working-dir-failure-message-test
   (let [message (sut/failure-message folder-entries

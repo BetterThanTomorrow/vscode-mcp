@@ -4,8 +4,7 @@
    ["net" :as net]
    ["os" :as os]
    ["path" :as path]
-   [cljs.test :refer [async deftest is testing]]
-   [promesa.core :as p]
+   [cljs.test :refer [deftest is testing]]
    [vscode-mcp.port-file :as sut]))
 
 (defn- tmp-port-dir []
@@ -41,39 +40,35 @@
       (is (not (fs/existsSync file-path)))
       (fs/rmSync dir #js {:recursive true :force true}))))
 
-(deftest sweep-stale-test
+(deftest ^:async sweep-stale-missing-dir-test
   (testing "missing dir is zero"
-    (async done
-           (p/let [n (sut/sweep-stale!+ "/tmp/vscode-mcp-port-files-missing-xyz")]
-             (is (= 0 n))
-             (done))))
+    (let [n (await (sut/sweep-stale!+ "/tmp/vscode-mcp-port-files-missing-xyz"))]
+      (is (= 0 n)))))
 
+(deftest ^:async sweep-stale-invalid-content-test
   (testing "invalid content is deleted"
-    (async done
-           (let [dir (tmp-port-dir)
-                 bad (path/join dir "svc-ws-bad.port")]
-             (fs/writeFileSync bad "not-a-port")
-             (p/let [n (sut/sweep-stale!+ dir)]
-               (is (= 1 n))
-               (is (not (fs/existsSync bad)))
-               (fs/rmSync dir #js {:recursive true :force true})
-               (done)))))
+    (let [dir (tmp-port-dir)
+          bad (path/join dir "svc-ws-bad.port")]
+      (fs/writeFileSync bad "not-a-port")
+      (let [n (await (sut/sweep-stale!+ dir))]
+        (is (= 1 n))
+        (is (not (fs/existsSync bad)))
+        (fs/rmSync dir #js {:recursive true :force true})))))
 
+(deftest ^:async sweep-stale-listening-test
   (testing "non-listening port file is deleted; listening port file is kept"
-    (async done
-           (let [dir (tmp-port-dir)
-                 server (net/createServer)
-                 dead (path/join dir "svc-ws-dead.port")
-                 live (path/join dir "svc-ws-live.port")]
-             (.listen server 0 "127.0.0.1"
-                      (fn []
-                        (let [port (.-port (.address server))]
-                          (fs/writeFileSync dead "1")
-                          (fs/writeFileSync live (str port))
-                          (p/let [n (sut/sweep-stale!+ dir "127.0.0.1")]
-                            (is (= 1 n))
-                            (is (not (fs/existsSync dead)))
-                            (is (fs/existsSync live))
-                            (.close server)
-                            (fs/rmSync dir #js {:recursive true :force true})
-                            (done)))))))))
+    (let [dir (tmp-port-dir)
+          server (net/createServer)
+          dead (path/join dir "svc-ws-dead.port")
+          live (path/join dir "svc-ws-live.port")]
+      (await (js/Promise. (fn [resolve]
+                            (.listen server 0 "127.0.0.1" resolve))))
+      (let [port (.-port (.address server))]
+        (fs/writeFileSync dead "1")
+        (fs/writeFileSync live (str port))
+        (let [n (await (sut/sweep-stale!+ dir "127.0.0.1"))]
+          (is (= 1 n))
+          (is (not (fs/existsSync dead)))
+          (is (fs/existsSync live))
+          (.close server)
+          (fs/rmSync dir #js {:recursive true :force true}))))))

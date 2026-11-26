@@ -3,7 +3,7 @@
    ["fs" :as fs]
    ["os" :as os]
    ["path" :as path]
-   [cljs.test :refer [async deftest is testing]]
+   [cljs.test :refer [deftest is testing]]
    [promesa.core :as p]
    [vscode-mcp.registry-listing :as sut]
    [vscode-mcp.registry-listing-stubs :as stubs]))
@@ -71,114 +71,100 @@
       (finally
         (cleanup! root)))))
 
-(deftest sibling-copy-writes-consumer-files-only-test
-  (async done
-         (let [root (tmp-root)
-               _ (write-sibling-tree! root)
-               config (listing-config root {})
-               home (sut/registry-home config)]
-           (-> (sut/maybe-install!+ config)
-               (p/then (fn [result]
-                         (is (= :sibling result))
-                         (is (every? #(fs/existsSync (path/join home %)) sut/consumer-files))
-                         (is (= "sibling-bb-mcp\n" (fs/readFileSync (path/join home "bb-mcp.md") "utf8")))
-                         (is (= "(ns mcp)\n" (fs/readFileSync (path/join home "scripts" "mcp.clj") "utf8")))
-                         (is (not (fs/existsSync (path/join home "fallback"))))))
-               (p/finally (fn []
-                            (cleanup! root)
-                            (done)))))))
+(deftest ^:async sibling-copy-writes-consumer-files-only-test
+  (let [root (tmp-root)
+        _ (write-sibling-tree! root)
+        config (listing-config root {})
+        home (sut/registry-home config)]
+    (try
+      (let [result (await (sut/maybe-install!+ config))]
+        (is (= :sibling result))
+        (is (every? #(fs/existsSync (path/join home %)) sut/consumer-files))
+        (is (= "sibling-bb-mcp\n" (fs/readFileSync (path/join home "bb-mcp.md") "utf8")))
+        (is (= "(ns mcp)\n" (fs/readFileSync (path/join home "scripts" "mcp.clj") "utf8")))
+        (is (not (fs/existsSync (path/join home "fallback")))))
+      (finally
+        (cleanup! root)))))
 
-(deftest github-fetch-test
-  (async done
-         (let [ok-root (tmp-root)
-               fail-root (tmp-root)]
-           (-> (install-with-fetch!+ ok-root #(p/resolved (github-files)))
-               (p/then (fn [{:keys [result home]}]
-                         (is (= :github result))
-                         (is (= "github-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))
-                         (is (fs/existsSync (path/join home "bb.edn")))
-                         (reset! sut/!install-ok? false)
-                         (install-with-fetch!+ fail-root #(p/rejected (js/Error. "offline")))))
-               (p/then (fn [{:keys [result home]}]
-                         (is (= :github-failed result))
-                         (is (= stubs/readme (fs/readFileSync (path/join home "README.md") "utf8")))
-                         (is (= stubs/agents (fs/readFileSync (path/join home "AGENTS.md") "utf8")))
-                         (is (not (fs/existsSync (path/join home "bb.edn"))))))
-               (p/finally (fn []
-                            (cleanup! ok-root)
-                            (cleanup! fail-root)
-                            (done)))))))
+(deftest ^:async github-fetch-test
+  (let [ok-root (tmp-root)
+        fail-root (tmp-root)]
+    (try
+      (let [{:keys [result home]} (await (install-with-fetch!+ ok-root #(p/resolved (github-files))))]
+        (is (= :github result))
+        (is (= "github-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))
+        (is (fs/existsSync (path/join home "bb.edn"))))
+      (reset! sut/!install-ok? false)
+      (let [{:keys [result home]} (await (install-with-fetch!+ fail-root #(p/rejected (js/Error. "offline"))))]
+        (is (= :github-failed result))
+        (is (= stubs/readme (fs/readFileSync (path/join home "README.md") "utf8")))
+        (is (= stubs/agents (fs/readFileSync (path/join home "AGENTS.md") "utf8")))
+        (is (not (fs/existsSync (path/join home "bb.edn")))))
+      (finally
+        (cleanup! ok-root)
+        (cleanup! fail-root)))))
 
-(deftest github-fail-leaves-previous-install-test
-  (async done
-         (let [root (tmp-root)
-               config (listing-config root {})
-               home (sut/registry-home config)]
-           (fs/mkdirSync home #js {:recursive true})
-           (fs/writeFileSync (path/join home "README.md") "real-readme\n")
-           (fs/writeFileSync (path/join home "bb.edn") "{:paths [\"scripts\"]}\n")
-           (reset! sut/!fetch-override!+ (fn [] (p/rejected (js/Error. "offline"))))
-           (-> (sut/maybe-install!+ config)
-               (p/then (fn [result]
-                         (is (= :github-failed result))
-                         (is (= "real-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))
-                         (is (not= stubs/readme (fs/readFileSync (path/join home "README.md") "utf8")))))
-               (p/finally (fn []
-                            (cleanup! root)
-                            (done)))))))
+(deftest ^:async github-fail-leaves-previous-install-test
+  (let [root (tmp-root)
+        config (listing-config root {})
+        home (sut/registry-home config)]
+    (fs/mkdirSync home #js {:recursive true})
+    (fs/writeFileSync (path/join home "README.md") "real-readme\n")
+    (fs/writeFileSync (path/join home "bb.edn") "{:paths [\"scripts\"]}\n")
+    (reset! sut/!fetch-override!+ (fn [] (p/rejected (js/Error. "offline"))))
+    (try
+      (let [result (await (sut/maybe-install!+ config))]
+        (is (= :github-failed result))
+        (is (= "real-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))
+        (is (not= stubs/readme (fs/readFileSync (path/join home "README.md") "utf8"))))
+      (finally
+        (cleanup! root)))))
 
-(deftest success-flag-skips-later-install-test
-  (async done
-         (let [root (tmp-root)
-               config (listing-config root {})
-               calls (atom 0)]
-           (write-sibling-tree! root)
-           (reset! sut/!fetch-override!+ (fn []
-                                           (swap! calls inc)
-                                           (p/rejected (js/Error. "should-not-run"))))
-           (-> (sut/maybe-install!+ config)
-               (p/then (fn [_] (sut/maybe-install!+ config)))
-               (p/then (fn [result]
-                         (is (= :skipped result))
-                         (is (= 0 @calls))))
-               (p/finally (fn []
-                            (cleanup! root)
-                            (done)))))))
+(deftest ^:async success-flag-skips-later-install-test
+  (let [root (tmp-root)
+        config (listing-config root {})
+        calls (atom 0)]
+    (write-sibling-tree! root)
+    (reset! sut/!fetch-override!+ (fn []
+                                    (swap! calls inc)
+                                    (p/rejected (js/Error. "should-not-run"))))
+    (try
+      (await (sut/maybe-install!+ config))
+      (let [result (await (sut/maybe-install!+ config))]
+        (is (= :skipped result))
+        (is (= 0 @calls)))
+      (finally
+        (cleanup! root)))))
 
-(deftest failed-fetch-retries-on-next-start-test
-  (async done
-         (let [root (tmp-root)
-               config (listing-config root {})
-               home (sut/registry-home config)
-               calls (atom 0)]
-           (reset! sut/!fetch-override!+ (fn []
-                                           (swap! calls inc)
-                                           (if (= 1 @calls)
-                                             (p/rejected (js/Error. "offline"))
-                                             (p/resolved (github-files)))))
-           (-> (sut/maybe-install!+ config)
-               (p/then (fn [result]
-                         (is (= :github-failed result))
-                         (sut/maybe-install!+ config)))
-               (p/then (fn [result]
-                         (is (= :github result))
-                         (is (= 2 @calls))
-                         (is (= "github-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))))
-               (p/finally (fn []
-                            (cleanup! root)
-                            (done)))))))
+(deftest ^:async failed-fetch-retries-on-next-start-test
+  (let [root (tmp-root)
+        config (listing-config root {})
+        home (sut/registry-home config)
+        calls (atom 0)]
+    (reset! sut/!fetch-override!+ (fn []
+                                    (swap! calls inc)
+                                    (if (= 1 @calls)
+                                      (p/rejected (js/Error. "offline"))
+                                      (p/resolved (github-files)))))
+    (try
+      (let [result (await (sut/maybe-install!+ config))]
+        (is (= :github-failed result)))
+      (let [result (await (sut/maybe-install!+ config))]
+        (is (= :github result))
+        (is (= 2 @calls))
+        (is (= "github-readme\n" (fs/readFileSync (path/join home "README.md") "utf8"))))
+      (finally
+        (cleanup! root)))))
 
-(deftest disabled-registry-skips-test
-  (async done
-         (let [root (tmp-root)
-               config (listing-config root {:registry/enabled? false})]
-           (-> (sut/maybe-install!+ config)
-               (p/then (fn [result]
-                         (is (= :skipped result))
-                         (is (not (fs/existsSync (path/join (sut/registry-home config) "README.md"))))))
-               (p/finally (fn []
-                            (cleanup! root)
-                            (done)))))))
+(deftest ^:async disabled-registry-skips-test
+  (let [root (tmp-root)
+        config (listing-config root {:registry/enabled? false})]
+    (try
+      (let [result (await (sut/maybe-install!+ config))]
+        (is (= :skipped result))
+        (is (not (fs/existsSync (path/join (sut/registry-home config) "README.md")))))
+      (finally
+        (cleanup! root)))))
 
 (deftest stubs-are-inlined-from-fallback-assets-test
   (testing "inlined stubs match the pez-authored fallback files"
