@@ -50,10 +50,25 @@
       (satisfies-when? (get tool "when") settings) :allowed
       :else :disabled)))
 
+(defn- unquoted
+  "Returns the YAML value `v` without the quotes around it, when it is quoted as a whole.
+   In a single-quoted value `''` is a quote, and in a double-quoted one `\\\"` is a
+   quote and `\\\\` a backslash."
+  [v]
+  (cond
+    (re-matches #"'(?:[^']|'')*'" v)
+    (string/replace (subs v 1 (dec (count v))) "''" "'")
+
+    (re-matches #"\"(?:[^\"\\]|\\[\s\S])*\"" v)
+    (string/replace (subs v 1 (dec (count v))) #"\\([\"\\])" "$1")
+
+    :else v))
+
 (defn- clean-yaml-value [v]
   (-> v
       string/trim
-      (string/replace #"^[>|]-?[ \t]*(?:\r\n|\n|\r)[ \t]*" "")))
+      (string/replace #"^[>|]-?[ \t]*(?:\r\n|\n|\r)[ \t]*" "")
+      unquoted))
 
 (defn- parse-frontmatter
   "Parses frontmatter text (lines between --- delimiters) into a map.

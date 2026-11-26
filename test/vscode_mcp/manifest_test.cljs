@@ -9,15 +9,15 @@
 
 (deftest satisfies-when?-test
   (testing "empty when-clause satisfies"
-    (is (true? (sut/satisfies-when? "" {})) "returns true for empty string")
-    (is (true? (sut/satisfies-when? nil {})) "returns true for nil"))
+    (is (true? (#'sut/satisfies-when? "" {})) "returns true for empty string")
+    (is (true? (#'sut/satisfies-when? nil {})) "returns true for nil"))
 
   (testing "matches key in settings"
-    (is (true? (sut/satisfies-when? "config.someSetting" {"config.someSetting" true})) "returns true when setting is true")
-    (is (false? (sut/satisfies-when? "config.someSetting" {"config.someSetting" false})) "returns false when setting is false"))
+    (is (true? (#'sut/satisfies-when? "config.someSetting" {"config.someSetting" true})) "returns true when setting is true")
+    (is (false? (#'sut/satisfies-when? "config.someSetting" {"config.someSetting" false})) "returns false when setting is false"))
 
   (testing "defaults to true if setting is missing"
-    (is (true? (sut/satisfies-when? "config.missingSetting" {})) "returns true when setting is absent")))
+    (is (true? (#'sut/satisfies-when? "config.missingSetting" {})) "returns true when setting is absent")))
 
 (def ^:private skill-fixture-path "stubs/skills/test-skill/SKILL.md")
 
@@ -65,52 +65,63 @@
     (let [content "---\nname: my-skill\ndescription: A great skill\n---\n\n# Body here"]
       (is (= {:name "my-skill"
               :description "A great skill"}
-             (sut/read-skill-frontmatter content))
+             (#'sut/read-skill-frontmatter content))
           "returns parsed map of name and description")))
 
   (testing "parses CRLF frontmatter fields separately"
     (let [content "---\r\nname: backseat-driver\r\ndescription: Effective use of Backseat Driver\r\n---\r\nBody"]
       (is (= {:name "backseat-driver"
               :description "Effective use of Backseat Driver"}
-             (sut/read-skill-frontmatter content))
+             (#'sut/read-skill-frontmatter content))
           "does not fold the description line into the name")))
 
   (testing "handles missing fields"
     (let [content "---\nname: my-skill\n---\nBody"]
       (is (= {:name "my-skill"
               :description nil}
-             (sut/read-skill-frontmatter content))
+             (#'sut/read-skill-frontmatter content))
           "returns nil for missing description")))
 
-  (testing "preserves quotes in values"
-    (let [content "---\nname: 'quoted-skill'\ndescription: \"Quoted desc\"\n---\nBody"]
-      (is (= {:name "'quoted-skill'"
-              :description "\"Quoted desc\""}
-             (sut/read-skill-frontmatter content))
-          "returns values with quotes intact")))
+  (testing "a value that is quoted as a whole"
+    (is (= {:name "quoted-skill"
+            :description "Quoted desc"}
+           (#'sut/read-skill-frontmatter "---\nname: 'quoted-skill'\ndescription: \"Quoted desc\"\n---\nBody"))
+        "loses the quotes around it")
+    (is (= {:name "it's"
+            :description "Say \"hi\" with a \\ in it"}
+           (#'sut/read-skill-frontmatter "---\nname: 'it''s'\ndescription: \"Say \\\"hi\\\" with a \\\\ in it\"\n---\nBody"))
+        "and the quotes and backslashes inside it are read as YAML reads them")
+    (is (= {:name "my-skill"
+            :description "Use the 'REPL' tool, \"always\""}
+           (#'sut/read-skill-frontmatter "---\nname: my-skill\ndescription: Use the 'REPL' tool, \"always\"\n---\nBody"))
+        "A value with quotes inside it, and none around it, keeps them")
+    (is (= {:name "my-skill"
+            :description "'One' and 'two'"}
+           (#'sut/read-skill-frontmatter "---\nname: my-skill\ndescription: 'One' and 'two'\n---\nBody"))
+        "as does a value that starts and ends with a quote without being quoted as a whole"))
 
   (testing "returns nil if no frontmatter"
-    (is (nil? (sut/read-skill-frontmatter "# Just a body")) "returns nil when frontmatter block is absent"))
+    (is (nil? (#'sut/read-skill-frontmatter "# Just a body")) "returns nil when frontmatter block is absent"))
 
   (testing "handles multi-line values"
     (let [content "---\nname: my-skill\ndescription: This is a\n multi-line\n description.\n---\nBody"]
       (is (= {:name "my-skill"
               :description "This is a\n multi-line\n description."}
-             (sut/read-skill-frontmatter content))
+             (#'sut/read-skill-frontmatter content))
           "returns concatenated multi-line description")))
 
   (testing "handles multi-line values containing colons"
     (let [content "---\nname: joyride\ndescription: >-\n  Joyride core\n  Use when: working with things.\n---\nBody"]
       (is (= {:name "joyride"
               :description "Joyride core\n  Use when: working with things."}
-             (sut/read-skill-frontmatter content))
+             (#'sut/read-skill-frontmatter content))
           "does not split continuation lines on colons")))
 
   (testing "handles CRLF folded scalar marker"
     (let [content "---\r\nname: joyride\r\ndescription: >-\r\n  Joyride core\r\n  Use when: working with things.\r\n---\r\nBody"]
       (is (= {:name "joyride"
               :description "Joyride core\n  Use when: working with things."}
-             (sut/read-skill-frontmatter content))
+             (#'sut/read-skill-frontmatter content))
           "strips the folded scalar marker with CRLF line endings"))))
 
 (deftest build-server-instructions-test
