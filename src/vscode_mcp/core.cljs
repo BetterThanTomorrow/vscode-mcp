@@ -1,6 +1,7 @@
 (ns vscode-mcp.core
-  "The library's entry points. Each keeps the config for the effects, gathers what the
-   decisions need from the editor, and dispatches one action to the loop. The actions
+  "The library's entry points. Each waits for the lifecycle call before it for the same
+   server, keeps the config for the effects, gathers what the decisions need from the
+   editor, and dispatches one action to the loop. The actions
    are in `vscode-mcp.lifecycle-axs`, and the effects in `vscode-mcp.lifecycle-fxs`.
 
    The state is the servers' states by server name, as plain data."
@@ -12,6 +13,7 @@
    [vscode-mcp.lifecycle :as lifecycle]
    [vscode-mcp.lifecycle-axs :as lifecycle-axs]
    [vscode-mcp.lifecycle-fxs :as lifecycle-fxs]
+   [vscode-mcp.lifecycle-turns :as lifecycle-turns]
    [vscode-mcp.port-file :as port-file]
    [vscode-mcp.registry :as registry]
    [vscode-mcp.registry-writer :as registry-writer]))
@@ -44,11 +46,14 @@
          :server/app-id (cursor/current-app-id)))
 
 (defn- dispatch-for!+
-  "Keeps `config` for the effects, and dispatches the action `action-name` with the
-   facts for `config` and `more-facts`. Returns a promise of the server's state."
+  "When the lifecycle call before it for `config`'s server has settled, keeps `config`
+   for the effects, and dispatches the action `action-name` with the facts for `config`
+   and `more-facts`. Returns a promise of the server's state."
   [config action-name more-facts]
-  (lifecycle-fxs/keep-config! config)
-  (dispatch! [[action-name (merge (facts config) more-facts)]]))
+  (lifecycle-turns/in-turn+ (:server/name config)
+                            (fn []
+                              (lifecycle-fxs/keep-config! config)
+                              (dispatch! [[action-name (merge (facts config) more-facts)]]))))
 
 (def create-config lifecycle/create-config)
 

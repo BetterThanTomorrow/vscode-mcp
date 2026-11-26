@@ -5,7 +5,8 @@
    [cljs.test :refer [deftest is]]
    [vscode-mcp.event-handler :as event-handler]
    [vscode-mcp.lifecycle :as lifecycle]
-   [vscode-mcp.lifecycle-axs :as lifecycle-axs]))
+   [vscode-mcp.lifecycle-axs :as lifecycle-axs]
+   [vscode-mcp.lifecycle-turns :as lifecycle-turns]))
 
 (def ^:private effect-names
   [:lifecycle/fx.return
@@ -240,3 +241,39 @@
             :lifecycle/fx.registry-started]
            @!performed)
         "The port files are swept before the start, and the start shows no message")))
+
+(deftest ^:async calls-in-turn-resolve-to-their-own-outcome
+  (let [{:keys [!performed] :as system} (test-system {:lifecycle/fx.start-server started
+                                                       :lifecycle/fx.wait-until-ready true
+                                                       :lifecycle/fx.register-with-cursor {:ok true}
+                                                       :lifecycle/fx.stop-server true
+                                                       :lifecycle/fx.unregister-from-cursor {:ok true}})
+        !in-progress (atom {})
+        in-turn+ (fn [action]
+                   (lifecycle-turns/in-turn+ !in-progress "my-server" (partial dispatch+ system action)))
+        first-start (in-turn+ [:lifecycle/ax.start in-cursor])
+        second-start (in-turn+ [:lifecycle/ax.start in-cursor])
+        stop (in-turn+ [:lifecycle/ax.stop in-cursor])
+        registered (assoc running :lifecycle/registered-name "my-server-ws-abc-g0")]
+    (is (= registered (await first-start)))
+    (is (= registered (await second-start))
+        "A start that came in while the server started resolves to the running, registered server")
+    (is (= stopped (await stop))
+        "A stop that came in while the server started stops it")
+    (is (= 1 (count (filter #{:lifecycle/fx.start-server} @!performed)))
+        "One server is started")
+    (is (some #{:lifecycle/fx.stop-server} @!performed))
+    (is (= {} @!in-progress)
+        "The calls are forgotten when they have settled")))
+
+(deftest ^:async a-call-after-one-that-failed-runs
+  (let [!in-progress (atom {})
+        throwing (lifecycle-turns/in-turn+ !in-progress "my-server" (fn [] (throw (js/Error. "boom"))))
+        rejecting (lifecycle-turns/in-turn+ !in-progress "my-server" (fn [] (js/Promise.reject (js/Error. "bang"))))
+        next-call (lifecycle-turns/in-turn+ !in-progress "my-server" (constantly :ran))]
+    (is (= "boom" (try (await throwing) (catch :default e (ex-message e))))
+        "A call that throws rejects")
+    (is (= "bang" (try (await rejecting) (catch :default e (ex-message e))))
+        "and the call after it runs, and rejects")
+    (is (= :ran (await next-call))
+        "and the call after that runs")))
