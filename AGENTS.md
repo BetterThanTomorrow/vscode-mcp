@@ -16,7 +16,7 @@ Ask yourself: Will this and the tests work on Windows too?
 
 **Responsibility split**
 
-- **Library:** start/stop socket, port file under `~/.config/vscode-mcp/port-files/`, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
+- **Library:** start/stop socket, port file under `~/.config/vscode-mcp/port-files/`, install wrapper, install the skills into the skills home, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
 - **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, when-contexts / commands / UI from the server's state; opt into the registry with `:registry/enabled?` and `:registry/custom-data`
 
 Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those live in the consumer repos.
@@ -99,6 +99,7 @@ The tests in `test-process/` start the compiled stdio wrapper, `out/stdio-wrappe
 | `vscode-mcp.eca` / `eca-config` | ECA `.eca/config.json` registration |
 | `vscode-mcp.policy` | Start/register/reload predicates |
 | `vscode-mcp.wrapper-install` | Symlink (DEBUG) / copy (release) into `:lifecycle/wrapper-install-dir` |
+| `vscode-mcp.skills-install` | The manifest's skills into the skills home, `~/.config/vscode-mcp/skills/<extension-name>/<skill-name>/`: link (DEBUG) / copy (release) |
 | `vscode-mcp.server-readiness` | TCP probe before Cursor registration |
 | `vscode-mcp.registry` | Entry schema, paths, atomic writes, dead-pid sweep |
 | `vscode-mcp.registry-writer` | The window's entry as data, written at start, after a change (debounced) and on the heartbeat |
@@ -158,7 +159,7 @@ The server's state, a plain map:
 
 A failure is in the data. A consumer shows its own messages for `:server/error` and `:lifecycle/registration-error`, and computes its when-contexts from the state.
 
-A start fails in one place, the step that starts the server: the wrapper can't be installed, the server can't listen, or the port file can't be written. That leaves no server, and `:server/error` says why. A Cursor registration that fails or throws during a start leaves the server running, with `:lifecycle/registration-error`. A failed ECA registration or registry entry is logged. A start while the server runs or is starting starts nothing, and resolves to the server's state.
+A start fails in one place, the step that starts the server: the wrapper can't be installed, the server can't listen, or the port file can't be written. That leaves no server, and `:server/error` says why. A Cursor registration that fails or throws during a start leaves the server running, with `:lifecycle/registration-error`. A failed ECA registration, registry entry or skill install is logged. A start while the server runs or is starting starts nothing, and resolves to the server's state.
 
 Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}`.
 
@@ -195,6 +196,14 @@ Optional dynamic hooks: `:resource-templates+`, `:read-resource+` (`nil` → fal
 | **Deferred** | Archives; `mcp-resource-template`; hierarchical skill paths |
 
 Tests: `test/vscode_mcp/manifest_test.cljs`, `test/vscode_mcp/requests_test.cljs`.
+
+## Skills home
+
+Every server start installs the skills the manifest declares into the skills home, `~/.config/vscode-mcp/skills`, after the wrapper's install: `<skills-home>/<extension-name>/<skill-name>/`, named by the manifest's `name` and each skill's frontmatter `name`, as the skill's URI has them. A development build (`goog.DEBUG`) links each skill's folder, a junction on Windows, and a release copies it. The last start wins, also between editors with different versions of the extension. Every skill is installed, whatever its `when` clause says, since the folder serves the whole machine and not one window's settings.
+
+`vscode-mcp.skills-install` makes the install a plan of steps, as data, and performs them. Each skill is linked or copied under a temporary name, a dot name next to the old one, and renamed over it, so a link someone made to it keeps working. An entry the manifest no longer declares is removed, a link by unlinking it, never by a recursive remove, which on Windows can follow a junction into what it points at. A blank extension name installs nothing. A step that fails is logged through `:mcp/on-log` and doesn't fail the start. Two windows that start at once can make a rename fail; the other window's skill is then in place.
+
+The library owns the skills home and replaces what is in it: it is the exception to putting your own files in `~/.config/vscode-mcp`. Override the folder with `:skills/dir` (tests). Tests: `test/vscode_mcp/skills_install_test.cljs`.
 
 ## Stdio wrapper connect-retry
 

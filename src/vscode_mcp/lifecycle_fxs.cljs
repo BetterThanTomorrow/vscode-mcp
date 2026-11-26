@@ -16,6 +16,7 @@
    [vscode-mcp.registry-writer :as registry-writer]
    [vscode-mcp.server :as server]
    [vscode-mcp.server-readiness :as server-readiness]
+   [vscode-mcp.skills-install :as skills-install]
    [vscode-mcp.wrapper-install :as wrapper-install]))
 
 (defonce ^:private !live-objects (atom {}))
@@ -52,13 +53,15 @@
     (on-server-changed server-state)))
 
 (defn- ^:async start-server
-  "Installs the wrapper and starts the server. Resolves to what the server listens on,
-   or to `{:error/message …}` for a start that failed, which leaves no server."
+  "Installs the wrapper and the skills, and starts the server. Resolves to what the
+   server listens on, or to `{:error/message …}` for a start that failed, which leaves
+   no server. A skill that can't be installed is logged, and doesn't fail the start."
   [_dispatch! {server-name :server/name :server/keys [host request-port instance-slug]}]
   (let [{:mcp/keys [on-request on-log] :as config} (config-of server-name)
         port-file-uri (vscode/Uri.file (port-file/primary-path config server-name instance-slug))]
     (try
       (wrapper-install/ensure-installed! config)
+      (skills-install/install-from-config! config js/goog.DEBUG)
       (let [started (await (server/start-server!+ {:server/host host
                                                    :server/request-port request-port
                                                    :server/port-file-uri port-file-uri

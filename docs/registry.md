@@ -10,7 +10,7 @@ The entry writer is in the library (`vscode-mcp.registry`, `vscode-mcp.registry-
 
 ## Registry home
 
-Registry home is a package. vscode-mcp owns the tree and overwrites files there. Put custom files in the parent directory, `~/.config/vscode-mcp`.
+Registry home is a package. vscode-mcp owns the tree and overwrites files there. Put custom files in the parent directory, `~/.config/vscode-mcp`, apart from `skills/` there, the skills home, which vscode-mcp owns too and replaces what is in it.
 
 ```
 ~/.config/vscode-mcp/registry/        registry home
@@ -25,6 +25,9 @@ Registry home is a package. vscode-mcp owns the tree and overwrites files there.
 
 ~/.config/vscode-mcp/mcp-media/       sibling of registry home
   <serverName>-<windowId>/            image/audio files from `bb mcp` (same stem as the entry)
+
+~/.config/vscode-mcp/skills/          skills home, sibling of registry home
+  <extension-name>/<skill-name>/      the skills the extension's manifest declares, put there at every server start
 ```
 
 Default entry directory: `~/.config/vscode-mcp/registry/windows/`. Override with `:registry/dir` (tests).
