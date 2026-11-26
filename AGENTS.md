@@ -87,7 +87,7 @@ The tests in `test-process/` start the compiled stdio wrapper, `out/stdio-wrappe
 | `vscode-mcp.lifecycle-axs` | The start, stop and Cursor registration's decisions, as pure actions `:lifecycle/ax.*`, and the state changes that are reported |
 | `vscode-mcp.lifecycle-fxs` | The effects `:lifecycle/fx.*`, async functions that resolve to data, also when what they did failed. Keeps the live objects by server name: the config as handed over, and the server that listens |
 | `vscode-mcp.lifecycle` | Pure state/config helpers (no VS Code API): the server's state as data |
-| `vscode-mcp.lifecycle-turns` | The entry points' calls for one server, one after the other: the call in progress by server name |
+| `vscode-mcp.lifecycle-turns` | The entry points' calls for one server, one after the other, each waiting for the one before it for a limited time: the call in progress by server name |
 | `vscode-mcp.port-file` | Port file under `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` + stale sweep |
 | `vscode-mcp.server` | TCP MCP socket server + port file I/O |
 | `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main). With no port argument, it connects to the caller's window. The shell: it dispatches what happens as actions and performs effects |
@@ -138,7 +138,7 @@ Pass `:settings` when tools/skills use `when` clauses in `package.json` (literal
 | `start!+ config` | Start, and show the manual-setup dialog |
 | `stop!+ config` / `stop!+ config {:lifecycle/silent? true}` | Stop the socket and delete the port file, unregister from Cursor (best-effort), then unlink the registry file. A server that is still starting is left to start |
 | `register-with-cursor!+ config` | Start if needed, then register |
-| `update-registry!+ config` | Take the config's `:registry/custom-data` for the running server's entry, written after the debounce time |
+| `update-registry!+ config` | After the lifecycle call before it, take the config's `:registry/custom-data` for the running server's entry, written after the debounce time |
 | `server-state config` | The server's state, as below |
 
 The config, beside the settings: `:vscode/extension-context`, `:server/name` (the registry entry, the port file and the ECA entry are named by it), `:wrapper/script-relative-path`, `:lifecycle/wrapper-install-dir` (required: on every start the library installs the stdio wrapper there and uses that path for manual-setup and ECA), `:manual-setup/extension-name`, `:server/request-port` (the library listens on port 0 when it registers with Cursor), `:registry/custom-data`, and three functions: `:mcp/on-request`, `:mcp/on-log` and `:mcp/on-server-changed`.
@@ -160,7 +160,7 @@ The server's state, a plain map:
 
 A failure is in the data. A consumer shows its own messages for `:server/error` and `:lifecycle/registration-error`, and computes its when-contexts from the state.
 
-A start fails in one place, the step that starts the server: the wrapper can't be installed, the server can't listen, or the port file can't be written. That leaves no server, and `:server/error` says why. A Cursor registration that fails or throws during a start leaves the server running, with `:lifecycle/registration-error`. A failed ECA registration, registry entry or skill install is logged. The entry points run the calls for one server one after the other: each waits until the call before it has settled, also when it rejected, so a start, stop or registration that comes in while a start is in progress resolves to the outcome of its own operation. A start that finds the server running or starting starts nothing, and resolves to the server's state.
+A start fails in one place, the step that starts the server: the wrapper can't be installed, the server can't listen, or the port file can't be written. That leaves no server, and `:server/error` says why. A Cursor registration that fails or throws during a start leaves the server running, with `:lifecycle/registration-error`. A failed ECA registration, registry entry or skill install is logged. The entry points run the calls for one server one after the other: each waits until the call before it has settled, also when it rejected, so a start, stop or registration that comes in while a start is in progress resolves to the outcome of its own operation, and the custom data that `update-registry!+` gets during a start is in the entry after it. A call that hasn't settled after 30 seconds, such as one that awaits an editor API that never answers, is waited for no longer: the call after it logs that, and runs, and the actions' guards protect the state. The silent stop at deactivation waits 3 seconds, since VS Code gives deactivation only a few. A start that finds the server running or starting starts nothing, and resolves to the server's state.
 
 Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}`.
 

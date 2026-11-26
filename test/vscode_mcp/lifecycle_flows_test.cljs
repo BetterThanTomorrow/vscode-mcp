@@ -250,7 +250,7 @@
                                                        :lifecycle/fx.unregister-from-cursor {:ok true}})
         !in-progress (atom {})
         in-turn+ (fn [action]
-                   (lifecycle-turns/in-turn+ !in-progress "my-server" (partial dispatch+ system action)))
+                   (lifecycle-turns/in-turn+ !in-progress "my-server" nil (partial dispatch+ system action)))
         first-start (in-turn+ [:lifecycle/ax.start in-cursor])
         second-start (in-turn+ [:lifecycle/ax.start in-cursor])
         stop (in-turn+ [:lifecycle/ax.stop in-cursor])
@@ -268,12 +268,49 @@
 
 (deftest ^:async a-call-after-one-that-failed-runs
   (let [!in-progress (atom {})
-        throwing (lifecycle-turns/in-turn+ !in-progress "my-server" (fn [] (throw (js/Error. "boom"))))
-        rejecting (lifecycle-turns/in-turn+ !in-progress "my-server" (fn [] (js/Promise.reject (js/Error. "bang"))))
-        next-call (lifecycle-turns/in-turn+ !in-progress "my-server" (constantly :ran))]
+        throwing (lifecycle-turns/in-turn+ !in-progress "my-server" nil (fn [] (throw (js/Error. "boom"))))
+        rejecting (lifecycle-turns/in-turn+ !in-progress "my-server" nil (fn [] (js/Promise.reject (js/Error. "bang"))))
+        next-call (lifecycle-turns/in-turn+ !in-progress "my-server" nil (constantly :ran))]
     (is (= "boom" (try (await throwing) (catch :default e (ex-message e))))
         "A call that throws rejects")
     (is (= "bang" (try (await rejecting) (catch :default e (ex-message e))))
         "and the call after it runs, and rejects")
     (is (= :ran (await next-call))
         "and the call after that runs")))
+
+(deftest ^:async a-call-after-one-that-never-settles-runs-after-the-wait
+  (let [!in-progress (atom {})
+        !events (atom [])
+        waiting {:turns/wait-ms 20
+                 :turns/on-waited-out #(swap! !events conj :waited-out)}
+        _never (lifecycle-turns/in-turn+ !in-progress "my-server" waiting
+                                         (fn [] (js/Promise. (fn [_resolve]))))
+        next-call (lifecycle-turns/in-turn+ !in-progress "my-server" waiting
+                                            (fn []
+                                              (swap! !events conj :next-ran)
+                                              (js/Promise. (fn [resolve] (js/setTimeout #(resolve :next) 30)))))
+        last-call (lifecycle-turns/in-turn+ !in-progress "my-server" waiting
+                                            (fn []
+                                              (swap! !events conj :last-ran)
+                                              :last))]
+    (is (= :next (await next-call))
+        "The call after one that never settles runs")
+    (is (= :last (await last-call)))
+    (is (= [:waited-out :next-ran :waited-out :last-ran] @!events)
+        "Each waits for the call before it from when that one ran, logs that it waited out, and runs anyway")
+    (is (= {} @!in-progress)
+        "The calls that settled are forgotten")))
+
+(deftest ^:async a-call-after-one-that-settles-doesnt-wait-it-out
+  (let [!in-progress (atom {})
+        !waited-out (atom 0)
+        waiting {:turns/wait-ms 20
+                 :turns/on-waited-out #(swap! !waited-out inc)}
+        first-call (lifecycle-turns/in-turn+ !in-progress "my-server" waiting (constantly :first))
+        other-server (lifecycle-turns/in-turn+ !in-progress "other-server" waiting
+                                               (fn [] (js/Promise. (fn [_resolve]))))
+        next-call (lifecycle-turns/in-turn+ !in-progress "my-server" waiting (constantly :next))]
+    (is (= [:first :next] [(await first-call) (await next-call)]))
+    (is (some? other-server))
+    (is (= 0 @!waited-out)
+        "A call that settles in time, and another server's call, aren't waited out")))
