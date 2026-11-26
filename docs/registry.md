@@ -30,6 +30,8 @@ Registry home is a package. vscode-mcp owns the tree and overwrites files there.
   <extension-name>/<skill-name>/      the skills the extension's manifest declares, put there at every server start
 ```
 
+A server's `initialize` instructions name its extension's folder in the skills home, and tell an agent whose harness doesn't give it the server's skills as skills to offer the user to link them into the harness's skills folder, `~/.claude/skills/` for Claude Code, with a junction on Windows. They also point the agent at registry home.
+
 Default entry directory: `~/.config/vscode-mcp/registry/windows/`. Override with `:registry/dir` (tests).
 
 ## Opt-in (extension consumers)

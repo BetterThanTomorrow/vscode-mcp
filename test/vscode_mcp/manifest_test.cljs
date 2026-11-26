@@ -166,6 +166,46 @@
       (is (not (string/includes? text "Tool description")) "does not dump tool descriptions")
       (is (not (string/includes? text "Skill description")) "does not dump skill descriptions"))))
 
+(deftest server-instructions-skills-home
+  (let [with-skills (sut/build-server-instructions {:base-text "Base text"
+                                                    :extension-name "my-ext"
+                                                    :skills? true})
+        paragraphs (string/split with-skills #"\n\n")]
+    (testing "With skills"
+      (is (= 4 (count paragraphs))
+          "The base text, the catalog pointer, the skills home and the registry, each a paragraph")
+      (is (string/includes? (nth paragraphs 2) "installed in `~/.config/vscode-mcp/skills/my-ext/`")
+          "Names the extension's folder in the skills home")
+      (is (string/includes? (nth paragraphs 2) "offer the user to link")
+          "Has the agent offer the link")
+      (is (string/includes? (nth paragraphs 2) "`ln -s ~/.config/vscode-mcp/skills/my-ext/<skill> ~/.claude/skills/<skill>`")
+          "Gives the Claude Code command")
+      (is (string/includes? (nth paragraphs 2) "-Target $HOME\\.config\\vscode-mcp\\skills\\my-ext\\<skill>`")
+          "Gives the Windows junction")
+      (is (string/includes? (nth paragraphs 2) "isn't a link into `~/.config/vscode-mcp/skills/`, leave it")
+          "Leaves an entry that isn't such a link")
+      (is (string/includes? (nth paragraphs 3) "`~/.config/vscode-mcp/registry`")
+          "Says where the registry is"))
+    (testing "Without skills, or without a name"
+      (doseq [opts [{:extension-name "my-ext" :skills? false}
+                    {:extension-name " " :skills? true}
+                    {:skills? true}]]
+        (let [text (sut/build-server-instructions opts)]
+          (is (not (string/includes? text "vscode-mcp/skills"))
+              (str "Leaves the skills home out for " (pr-str opts)))
+          (is (string/includes? text "`~/.config/vscode-mcp/registry`")
+              "Says where the registry is"))))))
+
+(deftest initialize-instructions-from-the-manifest
+  (let [manifest {:manifest/name "my-ext"
+                  :manifest/skills [{"path" "skills/a/SKILL.md"}]}]
+    (is (string/includes? (:instructions (sut/build-initialize-result manifest {:name "other-name"}))
+                          "`~/.config/vscode-mcp/skills/my-ext/`")
+        "The skills home folder is named by the manifest's name, as the install names it")
+    (is (not (string/includes? (:instructions (sut/build-initialize-result (dissoc manifest :manifest/skills)))
+                               "vscode-mcp/skills"))
+        "A manifest without skills gets no skills home sentence")))
+
 (deftest find-skill-resource-by-uri-test
   (let [resources [{:uri "skill://test-skill/SKILL.md" :name "test-skill"}]]
     (testing "matches canonical URI"

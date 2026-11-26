@@ -185,7 +185,7 @@ On first `on-started!+` in the Extension Host process, the library also installs
 | `resources/read` — siblings | Under skill dir; path-safe (no `..` / escape); best-effort symlinks |
 | mimeType | `.md` → `text/markdown`; other → `text/plain`; index → `application/json` |
 | Initialize capability | `capabilities.extensions["io.modelcontextprotocol/skills"] = {}` |
-| Initialize instructions | Full `skill://…/SKILL.md` URIs; mention `skill://index.json` |
+| Initialize instructions | A catalog pointer to `tools/list`, `resources/list` and `skill://index.json`; for a manifest with skills, the skills home and what an agent does with it (see Skills home); registry home |
 
 `:initialize-merge` **deep-merges** `:capabilities` (other keys shallow-merge).
 
@@ -203,6 +203,8 @@ Tests: `test/vscode_mcp/manifest_test.cljs`, `test/vscode_mcp/requests_test.cljs
 Every server start installs the skills the manifest declares into the skills home, `~/.config/vscode-mcp/skills`, after the wrapper's install: `<skills-home>/<extension-name>/<skill-name>/`, named by the manifest's `name` and each skill's frontmatter `name`, as the skill's URI has them. A development build (`goog.DEBUG`) links each skill's folder, a junction on Windows, and a release copies it. The last start wins, also between editors with different versions of the extension. Every skill is installed, whatever its `when` clause says, since the folder serves the whole machine and not one window's settings.
 
 `vscode-mcp.skills-install` makes the install a plan of steps, as data, and performs them. Each skill is linked or copied under a temporary name, a dot name next to the old one, and renamed over it, so a link someone made to it keeps working. An entry the manifest no longer declares is removed, a link by unlinking it, never by a recursive remove, which on Windows can follow a junction into what it points at; when `<skills-home>/<extension-name>` is itself a link, to a folder that may hold more, those entries are left. A temporary entry older than a minute is what an install left behind, a crash or a removal that failed, and is removed; one that is younger may be another window's install in progress. A blank extension name installs nothing. A step that fails is logged through `:mcp/on-log` and doesn't fail the start, and a cleanup that fails is logged apart from the install's result. Two windows that start at once can make a rename fail; the other window's skill is then in place.
+
+`build-server-instructions` in `vscode-mcp.manifest` tells an agent about the skills home, when the manifest has a name and skills: where the extension's skills are installed, and that an agent whose harness doesn't give it the server's skills as skills offers the user to link the ones `resources/list` lists into the harness's skills folder, and links them on the user's yes. It gives the command for Claude Code, `ln -s ~/.config/vscode-mcp/skills/<extension-name>/<skill> ~/.claude/skills/<skill>`, and a junction on Windows, since `ln -s` in Git Bash makes a copy. An entry by the skill's name that isn't a link into the skills home is left, and the agent tells the user it may be an older copy. The instructions always end with registry home, which can list the windows that run the server. The library links nothing into a harness's folders itself.
 
 The library owns the skills home and replaces what is in it: it is the exception to putting your own files in `~/.config/vscode-mcp`. Override the folder with `:skills/dir` (tests). Tests: `test/vscode_mcp/skills_install_test.cljs`.
 

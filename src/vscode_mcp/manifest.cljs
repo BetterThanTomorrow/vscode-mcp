@@ -273,10 +273,33 @@
 (def ^:private catalog-pointer
   "Tools are listed by `tools/list`. Skills are listed by `resources/list` and `skill://index.json` (read with `resources/read`).")
 
+(defn- skills-home-text
+  "What an agent does with the skills of the extension `extension-name` in the skills
+   home."
+  [extension-name]
+  (let [extension-dir (str "~/.config/vscode-mcp/skills/" extension-name)]
+    (str "The skills this server publishes are installed in `" extension-dir "/`, one folder per skill, and put there again at every server start. "
+         "If your harness doesn't give you this server's skills as skills, offer the user to link the ones that `resources/list` lists into the harness's skills folder, and link them when the user says yes. "
+         "For Claude Code, that is `ln -s " extension-dir "/<skill> ~/.claude/skills/<skill>` for each skill's name. "
+         "On Windows, make a junction instead, since `ln -s` in Git Bash makes a copy: "
+         "`New-Item -ItemType Junction -Path $HOME\\.claude\\skills\\<skill> -Target $HOME\\.config\\vscode-mcp\\skills\\" extension-name "\\<skill>`. "
+         "Where such a link is already there, there's nothing to do: the skill behind it is kept current. "
+         "Where an entry by the skill's name is there and isn't a link into `~/.config/vscode-mcp/skills/`, leave it, and tell the user it may be an older copy of the skill.")))
+
+(def ^:private registry-pointer
+  "The window registry, `~/.config/vscode-mcp/registry`, can list the editor windows that run this server; its `README.md` says how to attach to one, also without an MCP connection.")
+
 (defn build-server-instructions
-  "Returns initialize `instructions`: non-blank `:base-text` joined with a catalog pointer."
-  [{:keys [base-text]}]
-  (string/join "\n\n" (remove string/blank? [base-text catalog-pointer])))
+  "Returns initialize `instructions`: non-blank `:base-text`, a catalog pointer, where
+   the skills are installed and what to do with them, when `:skills?` and the
+   extension's name `:extension-name` isn't blank, and where the window registry is."
+  [{:keys [base-text extension-name skills?]}]
+  (string/join "\n\n" (remove string/blank? [base-text
+                                             catalog-pointer
+                                             (when (and skills?
+                                                        (not (string/blank? extension-name)))
+                                               (skills-home-text extension-name))
+                                             registry-pointer])))
 
 (defn build-initialize-result
   "Generates an MCP `initialize` result map.
@@ -288,7 +311,9 @@
   [manifest & [opts]]
   (let [server-name (or (:name opts) (:manifest/name manifest) "vscode-mcp-server")
         server-version (or (:version opts) (:manifest/version manifest) "0.0.0")
-        instructions (build-server-instructions {:base-text (:base-text opts)})]
+        instructions (build-server-instructions {:base-text (:base-text opts)
+                                                 :extension-name (:manifest/name manifest)
+                                                 :skills? (boolean (seq (:manifest/skills manifest)))})]
     {:protocolVersion "2024-11-05"
      :capabilities {:tools {}
                     :resources {}
