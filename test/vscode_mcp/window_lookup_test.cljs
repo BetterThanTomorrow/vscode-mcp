@@ -6,7 +6,6 @@
    ["path" :as path]
    [cljs.test :refer [deftest is testing]]
    [clojure.string :as string]
-   [promesa.core :as p]
    [vscode-mcp.stdio.window-lookup :as sut]))
 
 (def ext-host-env
@@ -288,7 +287,7 @@
                            :portFilePath "/pf/joyride-ws-b.port"
                            :host "::")
         read-port+ (fn [port-file]
-                     (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
+                     (js/Promise.resolve (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
     (try
       (let [found (await (sut/caller-window-port+ entries {:caller/env-window-id "ws-b"}
                                                   "joyride-mcp-server.js" read-port+))
@@ -382,7 +381,7 @@
       "With no match, the wrapper waits only the short budget")
   (let [entries (assoc-in folder-entries [1 :mcp :portFilePath] "/pf/joyride-ws-b.port")
         read-port+ (fn [port-file]
-                     (p/resolved (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
+                     (js/Promise.resolve (get {"/pf/joyride-ws-b.port" 4711} port-file)))]
     (try
       (let [before (await (sut/caller-window-port+ [] here "joyride-mcp-server.js" read-port+))
             after (await (sut/caller-window-port+ entries here "joyride-mcp-server.js" read-port+))]

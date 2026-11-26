@@ -4,7 +4,6 @@
    ["path" :as path]
    [cljs.test :refer [deftest is testing]]
    [clojure.string :as string]
-   [promesa.core :as p]
    [vscode-mcp.manifest :as manifest]
    [vscode-mcp.requests :as sut]))
 
@@ -114,7 +113,7 @@
         (let [res (await (sut/handle-manifest-request ctx {:method "resources/read" :id 4 :params {:uri "custom://x"}}
                                                       {:settings {}
                                                        :read-resource+ (fn [_ uri _]
-                                                                         (p/resolved {:contents [{:uri uri :text "async"}]}))}))]
+                                                                         (js/Promise.resolve {:contents [{:uri uri :text "async"}]}))}))]
           (is (= "async" (get-in res [:result :contents 0 :text]))))))
     (js/console.warn "Skipping resources-read-test: fixture not found")))
 
