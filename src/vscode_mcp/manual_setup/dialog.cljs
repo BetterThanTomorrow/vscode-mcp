@@ -9,26 +9,25 @@
    flow. Not part of the consumer API."
   (:require
    ["vscode" :as vscode]
-   [promesa.core :as p]
    [vscode-mcp.manual-setup :as manual-setup]))
 
-(defn show-manual-start-dialog!+
+(defn ^:async show-manual-start-dialog!+
   "Shows the manual-start information message with copy buttons, and writes
    the chosen command to the clipboard."
-  ([wrapper-path server-info] (show-manual-start-dialog!+ wrapper-path server-info nil))
+  ([wrapper-path server-info] (await (show-manual-start-dialog!+ wrapper-path server-info nil)))
   ([wrapper-path server-info opts]
    (let [message (manual-setup/format-start-message server-info opts)
-         {:manual-setup/keys [caller-window port-file]} (manual-setup/copy-command-strings wrapper-path server-info)]
-     (p/let [button (vscode/window.showInformationMessage message "This window" "External")]
-       (case button
-         "This window" (vscode/env.clipboard.writeText caller-window)
-         "External" (vscode/env.clipboard.writeText port-file)
-         nil)))))
+         {:manual-setup/keys [caller-window port-file]} (manual-setup/copy-command-strings wrapper-path server-info)
+         button (await (vscode/window.showInformationMessage message "This window" "External"))]
+     (case button
+       "This window" (await (vscode/env.clipboard.writeText caller-window))
+       "External" (await (vscode/env.clipboard.writeText port-file))
+       nil))))
 
 (defn show-stopped-message!+
   "Shows \"MCP server stopped\" unless {:manual-setup/silent? true}."
   ([] (show-stopped-message!+ nil))
   ([{:manual-setup/keys [silent? extension-name]}]
    (if silent?
-     (p/resolved nil)
+     (js/Promise.resolve nil)
      (vscode/window.showInformationMessage (str extension-name ": MCP server stopped")))))
