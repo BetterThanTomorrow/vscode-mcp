@@ -22,10 +22,12 @@ Agent/dev contract (lifecycle API, skill URIs, co-development with consumers): s
 
 ```edn
 io.github.betterthantomorrow/vscode-mcp {:git/url "https://github.com/BetterThanTomorrow/vscode-mcp.git"
-                                         :git/sha "f7dfcc81158f67ac8ef76e55e992daaea14d0336"}
+                                         :git/sha "507f250a0786f0264c34c27537462c30e825416c"}
 ```
 
 Update `:git/sha` to pin a specific commit (see [releases](https://github.com/BetterThanTomorrow/vscode-mcp/releases) or `git rev-parse HEAD` in a checkout).
+
+Your build needs ClojureScript 1.12.145 or later. The library's source uses async functions (`^:async` and `await`), and it's compiled as part of your extension.
 
 ### 2. Configure the Stdio Wrapper Build
 
@@ -39,6 +41,8 @@ Update `:git/sha` to pin a specific commit (see [releases](https://github.com/Be
 
 Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `tools/call` locally and delegate everything else to `vscode-mcp.requests/handle-manifest-request` (covers `initialize`, `tools/list`, `resources/*`, `ping`).
 
+The manifest functions work on your manifest as data. `manifest/manifest-data` reads it from the extension context.
+
 ```clojure
 (require '[vscode-mcp.manifest :as manifest]
          '[vscode-mcp.requests :as mcp-requests]
@@ -47,14 +51,15 @@ Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `to
 (defn- settings-map []
   {"config.my-extension.someSetting" true})
 
-(defn handle-mcp-request [{:keys [method params id] :as request} ^js context]
-  (let [opts {:settings (settings-map)
+(defn handle-mcp-request [^js context {:keys [method params id] :as request}]
+  (let [manifest (manifest/manifest-data context)
+        opts {:settings (settings-map)
               :initialize-opts {:settings (settings-map)}}]
     (case method
       "tools/call"
       (let [tool-name (:name params)
             args (:arguments params)
-            allowed (manifest/tool-call-allowed? context tool-name {:settings (:settings opts)})]
+            allowed (manifest/tool-call-allowed? manifest tool-name {:settings (:settings opts)})]
         (cond
           (or (= :disabled allowed) (= :unknown allowed))
           (responses/error-response id -32601 "Unknown tool")
@@ -63,22 +68,22 @@ Declare tools and skills in `package.json`. Implement `:mcp/on-request` with `to
           ;; Dispatch to your Copilot invoke-tool implementation.
           (responses/success-response id {:content [{:type "text" :text "…"}]})))
 
-      (mcp-requests/handle-manifest-request context request opts))))
+      (mcp-requests/handle-manifest-request manifest request opts))))
 ```
+
+The handler returns a response, or a promise of one. Any thenable will do, so promesa's promises work too. A handler that resolves to `nil` sends nothing.
 
 Skills from `chatSkills` show up as MCP resources at `skill://{name}/SKILL.md`. Details and optional hooks (`:resource-templates+`, `:read-resource+`, `:initialize-merge`) are in [AGENTS.md](AGENTS.md).
 
 ### 4. Wire Up Lifecycle
 
-`vscode-mcp.core` drives start/stop, Cursor registration, and the manual-start dialog. Build one config map, hold one lifecycle state atom, and rebuild the config on every lifecycle call so settings changes apply on the next start.
+`vscode-mcp.core` drives start/stop, Cursor registration, and the manual-start dialog. The library keeps the server. You build one config map, and rebuild it on every lifecycle call so settings changes apply on the next start. The library tells you about the server through `:mcp/on-server-changed`.
 
 ```clojure
 (require '[vscode-mcp.core :as lifecycle]
          '["os" :as os]
          '["path" :as path]
          '["vscode" :as vscode])
-
-(defonce !lifecycle-state (atom (lifecycle/init-state)))
 
 (defn- read-mcp-settings []
   (let [cfg (vscode/workspace.getConfiguration "my-extension.mcp")]
@@ -88,35 +93,57 @@ Skills from `chatSkills` show up as MCP resources at `skill://{name}/SKILL.md`. 
      :server/host (.get cfg "host")
      :server/request-port (.get cfg "port" 0)}))
 
+(defn- server-changed!
+  "Called with the server's state, when it changed."
+  [{:server/keys [running?]}]
+  ;; Sync VS Code when-contexts, status bar, etc.
+  (vscode/commands.executeCommand "setContext" "my-extension.mcpServerRunning" (boolean running?)))
+
 (defn- build-lifecycle-config [^js context]
   (lifecycle/create-config
    (merge (read-mcp-settings)
           {:vscode/extension-context context
-           :cursor/server-name "my-extension"
-           :cursor/script-relative-path "dist/mcp-server.js"
+           :server/name "my-extension"
+           :wrapper/script-relative-path "dist/mcp-server.js"
            :manual-setup/extension-name "My Extension"
-           :mcp/on-request handle-mcp-request
-           :lifecycle/request-port (fn [_ctx {:lifecycle/keys [cursor-mode?]}]
-                                     (if cursor-mode? 0 (:server/request-port (read-mcp-settings))))
            :lifecycle/wrapper-install-dir (path/join (os/homedir) ".config" "my-extension")
-           :lifecycle/on-running-changed (fn [running? _info]
-                                           ;; Sync VS Code when-contexts, status bar, etc.
-                                           )})))
+           :mcp/on-request (partial handle-mcp-request context)
+           :mcp/on-server-changed server-changed!})))
 
 (defn activate [^js context]
-  (-> (lifecycle/maybe-start!+ (build-lifecycle-config context) @!lifecycle-state true)
-      (.then #(reset! !lifecycle-state %))))
+  (lifecycle/maybe-start!+ (build-lifecycle-config context)))
 
 (defn deactivate []
-  (-> (lifecycle/stop!+ (build-lifecycle-config nil) @!lifecycle-state {:lifecycle/silent? true})
-      (.then #(reset! !lifecycle-state %))))
+  (lifecycle/stop!+ (build-lifecycle-config nil) {:lifecycle/silent? true}))
 ```
 
-Call `maybe-start!+` from `activate`. Use `start!+` / `stop!+` / `register-with-cursor!+` for commands. `:lifecycle/wrapper-install-dir` is required (symlink in DEBUG, copy in release).
+Call `maybe-start!+` from `activate`. Use `start!+` / `stop!+` / `register-with-cursor!+` for commands. Each takes the config and returns a promise of the server's state. `:lifecycle/wrapper-install-dir` is required (symlink in DEBUG, copy in release).
+
+The server's state is plain data. It's what `:mcp/on-server-changed` gets, what the lifecycle calls resolve to, and what `(lifecycle/server-state config)` returns:
+
+```clojure
+{:server/running? true
+ :server/starting? false
+ :server/stopping? false
+ :server/host "127.0.0.1"
+ :server/assigned-port 49311
+ :server/instance-slug "ws-bxnohh"
+ :server/port-file-path "/home/me/.config/vscode-mcp/port-files/my-extension-ws-bxnohh.port"
+ :server/error nil                      ; the message of a start that failed
+ :lifecycle/registered-name nil         ; the server's name in Cursor, when it is registered
+ :lifecycle/registration-error nil}     ; {:reason … :message …} when a Cursor registration failed
+```
+
+Some things to know about how the server behaves:
+
+* A start that fails resolves to a state with `:server/error`, and leaves no server behind (no open socket, no port file).
+* A Cursor registration that fails leaves the server running, with `:lifecycle/registration-error`.
+* In Cursor, a server that gets registered at start listens on a port the system picks, whatever `:server/request-port` says.
+* A stop while the server is still starting does nothing. Neither does a second start.
 
 ### Optional window registry
 
-Pass `:registry/enabled? true` to join the registry. Supply `:registry/custom-data+` for provider discovery (for example REPL sessions) and call `update-registry!+` when that data changes. Wiring: [docs/registry.md](docs/registry.md).
+Pass `:registry/enabled? true` to join the registry. Put what agents should discover about your window (for example REPL sessions) in `:registry/custom-data`, a map, and call `update-registry!+` with a config that has the new data when it changes. Wiring: [docs/registry.md](docs/registry.md).
 
 ### Optional ECA registration
 
@@ -128,7 +155,7 @@ Library default for `:mcp/auto-register-eca?` is **false**. Pass `true` from you
 
 ## Limitations
 
-1. **Naive YAML frontmatter parsing** — regex line parser for skill frontmatter; no lists, nested objects, or YAML anchors.
+1. **Naive YAML frontmatter parsing** — regex line parser for skill frontmatter; a value quoted as a whole is read without its quotes; no lists, nested objects, or YAML anchors.
 2. **Strict JSON Schema extraction** — tool `inputSchema` kept to `:type`, `:properties`, and `:required`.
 3. **Literal `when` clause matching** — `:settings` keys must match `when` strings exactly; no expression evaluation.
 
