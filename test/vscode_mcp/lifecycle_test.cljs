@@ -1,7 +1,8 @@
 (ns vscode-mcp.lifecycle-test
   (:require
    [cljs.test :refer [deftest is testing]]
-   [vscode-mcp.lifecycle :as sut]))
+   [vscode-mcp.lifecycle :as sut]
+   [vscode-mcp.lifecycle-turns :as lifecycle-turns]))
 
 (deftest create-config-test
   (testing "defaults auto-start?, auto-register?, auto-register-eca?, host, and registry"
@@ -57,3 +58,36 @@
   (is (= {:reason :registration-failed :message "boom"}
          (sut/registration-error {:ok false :message "boom"}))
       "A registration that threw has the reason for one that failed, and the error's message"))
+
+(deftest turn-options-test
+  (let [config {:server/name "my-server"}
+        picked (fn [options]
+                 (select-keys options [:turns/wait-ms :turns/from-call?]))]
+    (is (= {:turns/wait-ms lifecycle-turns/default-wait-ms :turns/from-call? false}
+           (picked (sut/turn-options config)))
+        "A call waits for the one before it the default time, from when that one began")
+    (is (= {:turns/wait-ms lifecycle-turns/default-wait-ms :turns/from-call? false}
+           (picked (sut/turn-options config (sut/stop-options nil))))
+        "and so does a stop with a message")
+    (doseq [given [true {:lifecycle/silent? true}]]
+      (is (= {:turns/wait-ms sut/silent-stop-wait-ms :turns/from-call? true}
+             (picked (sut/turn-options config (sut/stop-options given))))
+          (str "A silent stop, given " (pr-str given) ", waits its own limit, from when it is called")))
+    (is (< sut/silent-stop-wait-ms 5000)
+        "The silent stop's limit is shorter than the time VS Code gives deactivation")))
+
+(deftest stop-options-test
+  (is (= {:lifecycle/silent? false} (sut/stop-options nil)))
+  (is (= {:lifecycle/silent? false} (sut/stop-options {})))
+  (is (= {:lifecycle/silent? true} (sut/stop-options true)))
+  (is (= {:lifecycle/silent? true} (sut/stop-options {:lifecycle/silent? true}))))
+
+(deftest turn-options-log-a-waited-out-call
+  (let [!logged (atom [])
+        {:turns/keys [on-waited-out]} (sut/turn-options {:server/name "my-server"
+                                                         :mcp/on-log (fn [& args]
+                                                                       (swap! !logged conj args))})]
+    (on-waited-out)
+    (is (= [[:warn "[MCP] A lifecycle call for" "my-server" "hasn't settled after"
+             lifecycle-turns/default-wait-ms "ms; the next one runs anyway"]]
+           @!logged))))

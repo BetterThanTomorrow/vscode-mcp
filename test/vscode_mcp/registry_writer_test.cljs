@@ -133,6 +133,19 @@
       (finally
         (cleanup! dir)))))
 
+(deftest ^:async an-update-during-the-start-is-in-the-entry-test
+  (let [dir (tmp-dir)
+        start-config (tmp-config dir {:registry/custom-data {:sessions ["at-start"]}})]
+    (try
+      (sut/update-registry!+ (tmp-config dir {:registry/custom-data {:sessions ["updated"]}}))
+      (is (not (fs/existsSync (entry-path dir)))
+          "An update before the server has an entry writes none")
+      (await (sut/on-started!+ start-config (tmp-info)))
+      (is (= ["updated"] (:sessions (read-entry dir)))
+          "The entry the start writes has the data of the update, and not the older data of the start's config")
+      (finally
+        (cleanup! dir)))))
+
 (deftest ^:async stop-then-start-writes-the-new-servers-entry-test
   (let [dir (tmp-dir)
         info (tmp-info)

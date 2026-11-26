@@ -14,6 +14,11 @@
   (atom {}))
 
 (defonce ^{:private true
+           :doc "By server name: the latest custom data an update gave, kept also while the server has no entry, for the entry its start writes."}
+  !latest-custom-data
+  (atom {}))
+
+(defonce ^{:private true
            :doc "By server: the timer of the next write after a change, and the heartbeat's."}
   !timers
   (atom {}))
@@ -45,6 +50,7 @@
   (doseq [key (keys @!timers)]
     (clear-timers! key))
   (reset! !entries {})
+  (reset! !latest-custom-data {})
   (mcp-media/clear-media-state!))
 
 (defn- custom-data
@@ -81,7 +87,7 @@
 
 (defn on-started!+
   "Sweeps dead entries, starts the heartbeat, and writes the entry with the custom data
-   in `config`."
+   the latest update gave, or else the custom data in `config`."
   [config server-info]
   (if-not (and (:registry/enabled? config)
                (:server/name config)
@@ -91,7 +97,9 @@
       (clear-timers! key)
       (registry/sweep-dead-pid-files! (registry/registry-dir config))
       (swap! !entries assoc key {:registry/envelope (registry/envelope-for config server-info nil)
-                                 :registry/custom-data (custom-data config)
+                                 :registry/custom-data (get @!latest-custom-data
+                                                            (:server/name config)
+                                                            (custom-data config))
                                  :registry/path (registry/entry-path config
                                                                      (:server/name config)
                                                                      (:server/instance-slug server-info))
@@ -105,8 +113,10 @@
       (js/Promise.resolve nil))))
 
 (defn on-stopping!
-  "Forgets the server's entry and clears its timers, so nothing writes it again."
+  "Forgets the server's entry, its timers and the custom data of its updates, so nothing
+   writes it again."
   [config]
+  (swap! !latest-custom-data dissoc (:server/name config))
   (when-let [key (find-key (:server/name config))]
     (mcp-media/on-stopping! {:config config
                              :server-info (select-keys (get @!entries key) [:server/instance-slug])})
@@ -124,10 +134,13 @@
                           (:server/instance-slug server-info)))))
 
 (defn update-registry!+
-  "Takes the custom data in `config` for the running server's entry, and writes the
-   entry after the debounce time."
+  "Takes the custom data in `config` for the server's entry. Writes the entry of a
+   running server after the debounce time, and keeps the data for the entry of a
+   server that hasn't written one yet, for when it starts."
   [config]
-  (when (:registry/enabled? config)
+  (when (and (:registry/enabled? config)
+             (:server/name config))
+    (swap! !latest-custom-data assoc (:server/name config) (custom-data config))
     (when-let [key (find-key (:server/name config))]
       (swap! !entries assoc-in [key :registry/custom-data] (custom-data config))
       (schedule-write! key config)))

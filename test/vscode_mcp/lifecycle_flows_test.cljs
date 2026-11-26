@@ -301,6 +301,30 @@
     (is (= {} @!in-progress)
         "The calls that settled are forgotten")))
 
+(deftest ^:async a-call-that-waits-from-its-call-runs-behind-a-waiting-call
+  (let [!in-progress (atom {})
+        !events (atom [])
+        called-at (js/Date.now)
+        _never (lifecycle-turns/in-turn+ !in-progress "my-server" {:turns/wait-ms 300}
+                                         (fn [] (js/Promise. (fn [_resolve]))))
+        waiting-call (lifecycle-turns/in-turn+ !in-progress "my-server" {:turns/wait-ms 300}
+                                               (fn []
+                                                 (swap! !events conj :waiting-call-ran)
+                                                 :waiting-call))
+        stop (lifecycle-turns/in-turn+ !in-progress "my-server" {:turns/wait-ms 20
+                                                                 :turns/from-call? true
+                                                                 :turns/on-waited-out #(swap! !events conj :stop-waited-out)}
+                                       (fn []
+                                         (swap! !events conj :stop-ran)
+                                         :stop))]
+    (is (= :stop (await stop)))
+    (is (< (- (js/Date.now) called-at) 200)
+        "The stop runs within its limit from when it was called, and not its limit after the call before it begins")
+    (is (= [:stop-waited-out :stop-ran] @!events)
+        "The stop runs while the call before it still waits for the hung call")
+    (is (= :waiting-call (await waiting-call)))
+    (is (= [:stop-waited-out :stop-ran :waiting-call-ran] @!events))))
+
 (deftest ^:async a-call-after-one-that-settles-doesnt-wait-it-out
   (let [!in-progress (atom {})
         !waited-out (atom 0)

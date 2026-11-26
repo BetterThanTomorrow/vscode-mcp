@@ -1,6 +1,6 @@
 (ns vscode-mcp.core
-  "The library's entry points. Each waits for the lifecycle call before it for the same
-   server, keeps the config for the effects, gathers what the decisions need from the
+  "The library's entry points. Each lifecycle call waits for the one before it for the
+   same server, keeps the config for the effects, gathers what the decisions need from the
    editor, and dispatches one action to the loop. The actions
    are in `vscode-mcp.lifecycle-axs`, and the effects in `vscode-mcp.lifecycle-fxs`.
 
@@ -45,24 +45,6 @@
          :server/workspace-folder (cursor/current-workspace-root)
          :server/app-id (cursor/current-app-id)))
 
-(def ^:private silent-stop-wait-ms
-  "How long the silent stop at deactivation waits for a call before it that doesn't
-   settle. VS Code gives deactivation a few seconds before it ends the Extension Host,
-   so the stop waits less than that, and still has time to run."
-  3000)
-
-(defn- turn-options
-  "How a call for `config`'s server waits for the one before it: `wait-ms` at most, and
-   then it logs that it runs anyway."
-  ([config]
-   (turn-options config lifecycle-turns/default-wait-ms))
-  ([{server-name :server/name :mcp/keys [on-log]} wait-ms]
-   {:turns/wait-ms wait-ms
-    :turns/on-waited-out (fn []
-                           (when on-log
-                             (on-log :warn "[MCP] A lifecycle call for" server-name
-                                     "hasn't settled after" wait-ms "ms; the next one runs anyway")))}))
-
 (defn- dispatch-for!+
   "When the lifecycle call before it for `config`'s server has settled, or has been
    waited for as long as `waiting` says, keeps `config` for the effects, and
@@ -87,13 +69,11 @@
    (vscode/Uri.file (port-file/primary-path config server-name window-id))))
 
 (defn update-registry!+
-  "When the lifecycle call before it for `config`'s server has settled, takes the
-   config's `:registry/custom-data` for the running server's entry, written after the
-   debounce time. So the data given during a start is in the entry after it."
+  "Takes the config's `:registry/custom-data` for the server's entry, at once, without
+   waiting for a lifecycle call in progress: the running server's entry is written
+   after the debounce time, and the entry of a server that starts is written with it."
   [config]
-  (lifecycle-turns/in-turn+ (:server/name config)
-                            (turn-options config)
-                            #(registry-writer/update-registry!+ config)))
+  (registry-writer/update-registry!+ config))
 
 (defn server-state
   "Returns the state of `config`'s server as plain data: whether it runs, starts or
@@ -107,14 +87,14 @@
    a message. Returns a promise of the server's state."
   [config]
   (registry/set-extension-host-env!)
-  (dispatch-for!+ config (turn-options config) :lifecycle/ax.maybe-start nil))
+  (dispatch-for!+ config (lifecycle/turn-options config) :lifecycle/ax.maybe-start nil))
 
 (defn start!+
   "Starts `config`'s server, and shows how to connect to it. Returns a promise of the
    server's state, with `:server/error` when the start failed."
   [config]
   (registry/set-extension-host-env!)
-  (dispatch-for!+ config (turn-options config) :lifecycle/ax.start {:lifecycle/silent? false}))
+  (dispatch-for!+ config (lifecycle/turn-options config) :lifecycle/ax.start {:lifecycle/silent? false}))
 
 (defn register-with-cursor!+
   "Registers `config`'s server with Cursor, starting it when it doesn't run. Returns a
@@ -122,21 +102,18 @@
    register."
   [config]
   (registry/set-extension-host-env!)
-  (dispatch-for!+ config (turn-options config) :lifecycle/ax.register-with-cursor nil))
+  (dispatch-for!+ config (lifecycle/turn-options config) :lifecycle/ax.register-with-cursor nil))
 
 (defn stop!+
   "Stops `config`'s server, with a message unless `stop-options` has `:lifecycle/silent?`.
    A silent stop, the one at deactivation, waits for a call before it that doesn't
-   settle for `silent-stop-wait-ms` only. Returns a promise of the server's state."
+   settle for `lifecycle/silent-stop-wait-ms` from when it is called only. Returns a
+   promise of the server's state."
   ([config]
    (stop!+ config nil))
   ([config stop-options]
-   (let [silent? (boolean (if (map? stop-options)
-                            (:lifecycle/silent? stop-options)
-                            stop-options))]
+   (let [stop-options (lifecycle/stop-options stop-options)]
      (dispatch-for!+ config
-                     (turn-options config (if silent?
-                                            silent-stop-wait-ms
-                                            lifecycle-turns/default-wait-ms))
+                     (lifecycle/turn-options config stop-options)
                      :lifecycle/ax.stop
-                     {:lifecycle/silent? silent?}))))
+                     stop-options))))
