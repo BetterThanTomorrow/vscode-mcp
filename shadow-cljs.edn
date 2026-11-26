@@ -1,6 +1,10 @@
 {:deps true
  :builds
- {:test {:target :node-test
+ {;; The wrapper as a script, for the tests that start it as a process.
+  :stdio-wrapper {:target :node-script
+                  :main vscode-mcp.stdio.wrapper/main
+                  :output-to "out/stdio-wrapper.js"}
+  :test {:target :node-test
          :output-to "out/test.js"
          :ns-regexp "-test$"
          ;; Bundle classpath JS (vendored jsonc-parser); leave Node builtins as requires.

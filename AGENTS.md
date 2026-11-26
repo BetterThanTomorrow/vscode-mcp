@@ -64,10 +64,12 @@ Ship order for library features that need consumer wiring: commit the library (i
 ## Development in this repo
 
 ```bash
-bb test   # shadow-cljs compile :test + node out/test.js
+bb test   # shadow-cljs compile :stdio-wrapper and :test + node out/test.js, then the Babashka tests
 ```
 
 No Extension Host here. Integration proof is in consumer Extension Hosts and their e2e suites.
+
+The tests in `test-process/` start the compiled stdio wrapper, `out/stdio-wrapper.js`, as a process against a socket server in the test, for what depends on timing: stdin ending while it waits, giving up, a server that appears late, a connection that breaks. The directory is on the classpath through the `:shadow-cljs` alias only, so the consumers' test runs don't pick those tests up.
 
 ## Key namespaces
 

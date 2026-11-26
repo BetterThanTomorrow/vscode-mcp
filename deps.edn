@@ -4,4 +4,7 @@
         thheller/shadow-cljs {:mvn/version "3.4.4"}
         funcool/promesa {:mvn/version "11.0.678"}
         io.github.pez/baldr {:mvn/version "1.0.9"}}
- :aliases {:shadow-cljs {:main-opts ["-m" "shadow.cljs.devtools.cli"]}}}
+ :aliases {;; test-process holds the tests that start the stdio wrapper as a process.
+           ;; It is outside :paths, so the consumers' test runs don't pick them up.
+           :shadow-cljs {:extra-paths ["test-process"]
+                         :main-opts ["-m" "shadow.cljs.devtools.cli"]}}}

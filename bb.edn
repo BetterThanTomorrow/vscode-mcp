@@ -20,7 +20,7 @@
   test
   {:doc "Compiles and runs unit tests."
    :task (do
-           (shell "clojure -M:shadow-cljs compile test")
+           (shell "clojure -M:shadow-cljs compile stdio-wrapper test")
            (shell "node out/test.js")
            (run 'test-bb))}
 
