@@ -58,6 +58,11 @@
   (doseq [message messages]
     (.write (.-stdin child) (str (js/JSON.stringify (clj->js message)) "\n"))))
 
+(defn- end-stdin!
+  "Ends the wrapper's stdin."
+  [{:keys [^js child]}]
+  (.end (.-stdin child)))
+
 (defn- responses
   "The messages the wrapper has written to stdout."
   [{:keys [!run]}]
@@ -139,8 +144,8 @@
           with-request (start-wrapper! [port-file "127.0.0.1"] home)]
       (send! with-request [{:jsonrpc "2.0" :id 1 :method "initialize"}])
       (js/setTimeout (fn []
-                       (.end (.-stdin (:child silent)))
-                       (.end (.-stdin (:child with-request))))
+                       (end-stdin! silent)
+                       (end-stdin! with-request))
                      700)
       (-> (wait-for+ #(and (some? (exit-code silent))
                            (some? (exit-code with-request)))
@@ -222,7 +227,7 @@
                           (mapv #(:id (js->clj (js/JSON.parse %) :keywordize-keys true))
                                 @(:!lines @!server)))
                        "The server got each request once, in order")
-                   (.end (.-stdin (:child wrapper)))
+                   (end-stdin! wrapper)
                    (is (nil? (exit-code wrapper))
                        "The wrapper runs while the connection is open")))
           (.catch fails)
