@@ -114,7 +114,15 @@
                                                       {:settings {}
                                                        :read-resource+ (fn [_ uri _]
                                                                          (js/Promise.resolve {:contents [{:uri uri :text "async"}]}))}))]
-          (is (= "async" (get-in res [:result :contents 0 :text]))))))
+          (is (= "async" (get-in res [:result :contents 0 :text])))))
+
+      (testing "async hook thenable that isn't a native promise, as promesa's are"
+        (let [res (await (sut/handle-manifest-request ctx {:method "resources/read" :id 5 :params {:uri "custom://y"}}
+                                                      {:settings {}
+                                                       :read-resource+ (fn [_ uri _]
+                                                                         #js {:then (fn [resolve _reject]
+                                                                                      (resolve {:contents [{:uri uri :text "thenable"}]}))})}))]
+          (is (= "thenable" (get-in res [:result :contents 0 :text]))))))
     (js/console.warn "Skipping resources-read-test: fixture not found")))
 
 (deftest resource-templates-test
