@@ -120,6 +120,12 @@
         _ (do-log options :debug "[Server] Generated responses:" (pr-str responses))]
     responses))
 
+(defn- thenable?
+  "True for a promise of any kind: a native one, or promesa's."
+  [x]
+  (and (some? x)
+       (fn? (unchecked-get x "then"))))
+
 (defn- socket-peer-label [^js socket]
   (try
     (let [remote-address (.-remoteAddress socket)
@@ -145,15 +151,17 @@
              (let [responses (handle-socket-data! options buffer data-chunk)]
                (doseq [response responses]
                  (when response
-                   (if (p/promise? response)
-                     (-> response
-                         (p/then (fn [resolved-response]
-                                   (do-log options :debug "[Server] Sending resolved response:" (pr-str resolved-response))
-                                   (.write socket (format-response-json resolved-response))))
-                         (p/catch (fn [err]
-                                    (do-log options :error "[Server] Error resolving response:" err)
-                                    (let [error-response (create-error-response nil -32603 (str "Internal error: " err))]
-                                      (.write socket (format-response-json error-response))))))
+                   (if (thenable? response)
+                     (.then (js/Promise.resolve response)
+                            (fn [resolved-response]
+                              ;; A request handler resolves to nil for what gets no answer
+                              (when resolved-response
+                                (do-log options :debug "[Server] Sending resolved response:" (pr-str resolved-response))
+                                (.write socket (format-response-json resolved-response))))
+                            (fn [err]
+                              (do-log options :error "[Server] Error resolving response:" err)
+                              (let [error-response (create-error-response nil -32603 (str "Internal error: " err))]
+                                (.write socket (format-response-json error-response)))))
                      ;; Handle non-promise responses
                      (do
                        (do-log options :debug "[Server] Sending response:" (pr-str response))

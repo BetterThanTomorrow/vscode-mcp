@@ -6,7 +6,6 @@
    resources/read (skills), and ping. Extensions implement `tools/call`
    themselves and may supply optional hooks for dynamic resources."
   (:require
-   [promesa.core :as p]
    [vscode-mcp.manifest :as manifest]
    [vscode-mcp.responses :as responses]))
 
@@ -25,6 +24,12 @@
   (when-let [resource (manifest/read-resource context uri (manifest-opts opts))]
     {:contents [(dissoc resource :skill-path)]}))
 
+(defn- thenable?
+  "True for a promise of any kind: a native one, or promesa's."
+  [x]
+  (and (some? x)
+       (fn? (unchecked-get x "then"))))
+
 (defn- success-for-read
   [id result-or-nil not-found-message]
   (if result-or-nil
@@ -34,12 +39,12 @@
 (defn- resolve-read-result+
   [id context uri opts hook-result]
   (cond
-    (p/promise? hook-result)
-    (p/then hook-result
-            (fn [result]
-              (if result
-                (responses/success-response id result)
-                (success-for-read id (skill-read-result context uri opts) "Resource not found"))))
+    (thenable? hook-result)
+    (.then (js/Promise.resolve hook-result)
+           (fn [result]
+             (if result
+               (responses/success-response id result)
+               (success-for-read id (skill-read-result context uri opts) "Resource not found"))))
 
     hook-result
     (responses/success-response id hook-result)
@@ -87,8 +92,8 @@
   (let [templates (if-let [f (:resource-templates+ opts)]
                     (f context opts)
                     [])]
-    (if (p/promise? templates)
-      (p/then templates #(responses/success-response id {:resourceTemplates %}))
+    (if (thenable? templates)
+      (.then (js/Promise.resolve templates) #(responses/success-response id {:resourceTemplates %}))
       (responses/success-response id {:resourceTemplates templates}))))
 
 (defn- handle-resources-read

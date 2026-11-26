@@ -72,3 +72,67 @@
       (is (= "joyride-ws-abc-g2" (:register/unregister-name intent)))
       (is (= 3 (:register/generation intent)))
       (is (= "joyride-ws-abc-g3" (:register/register-name intent))))))
+
+(deftest create-config-names-test
+  (testing "the server's name and the wrapper's script, by either pair of keys"
+    (is (= {:server/name "joyride"
+            :cursor/server-name "joyride"
+            :wrapper/script-relative-path "dist/joyride-mcp-server.js"
+            :cursor/script-relative-path "dist/joyride-mcp-server.js"}
+           (select-keys (sut/create-config {:server/name "joyride"
+                                            :wrapper/script-relative-path "dist/joyride-mcp-server.js"})
+                        [:server/name :cursor/server-name :wrapper/script-relative-path :cursor/script-relative-path])
+           (select-keys (sut/create-config {:cursor/server-name "joyride"
+                                            :cursor/script-relative-path "dist/joyride-mcp-server.js"})
+                        [:server/name :cursor/server-name :wrapper/script-relative-path :cursor/script-relative-path]))))
+  (testing "a config without them has neither"
+    (is (not (contains? (sut/create-config {}) :server/name)))))
+
+(deftest server-facts-test
+  (testing "a server that doesn't run"
+    (is (= {:server/running? false
+            :server/host nil
+            :server/assigned-port nil
+            :server/instance-slug nil
+            :server/port-file-path nil
+            :lifecycle/registered-name nil}
+           (sut/server-facts (sut/init-state)))))
+  (testing "a running server, registered with Cursor"
+    (is (= {:server/running? true
+            :server/host "127.0.0.1"
+            :server/assigned-port 49311
+            :server/instance-slug "ws-bxnohh"
+            :server/port-file-path "/home/.config/vscode-mcp/port-files/joyride-ws-bxnohh.port"
+            :lifecycle/registered-name "joyride-ws-bxnohh-0"}
+           (sut/server-facts (assoc (sut/init-state)
+                                    :lifecycle/registered-name "joyride-ws-bxnohh-0"
+                                    :lifecycle/server-info {:server/host "127.0.0.1"
+                                                            :server/assigned-port 49311
+                                                            :server/instance-slug "ws-bxnohh"
+                                                            :server/instance #js {}
+                                                            :server/port-file-uri #js {:fsPath "/home/.config/vscode-mcp/port-files/joyride-ws-bxnohh.port"}})))
+        "The facts are plain data, without the server and the port file's Uri")))
+
+(deftest server-state-changes-test
+  (testing "the state of a server that doesn't run has every key"
+    (is (= (set (keys sut/stopped-server-state))
+           (set (concat (keys (sut/server-facts (sut/init-state)))
+                        [:server/starting? :server/stopping? :server/error :lifecycle/registration-error])))))
+  (testing "a change is put in the state"
+    (is (= (assoc sut/stopped-server-state :server/stopping? true)
+           (sut/changed-server-state sut/stopped-server-state {:server/stopping? true}))))
+  (testing "a server that begins to start has no error from an earlier start"
+    (is (= (assoc sut/stopped-server-state :server/starting? true)
+           (sut/changed-server-state (assoc sut/stopped-server-state :server/error "EADDRINUSE")
+                                     {:server/starting? true})))
+    (is (= "EADDRINUSE"
+           (:server/error (sut/changed-server-state (assoc sut/stopped-server-state :server/error "EADDRINUSE" :server/starting? true)
+                                                    {:server/starting? false})))
+        "and keeps the error of a start that just failed")))
+
+(deftest registration-error-test
+  (is (= {:reason :cursor-api-unavailable}
+         (sut/registration-error {:ok false :reason :cursor-api-unavailable})))
+  (is (= {:reason :registration-failed :message "boom"}
+         (sut/registration-error {:ok false :error (js/Error. "boom") :config {}}))
+      "A registration that threw has the reason for one that failed, and the error's message"))

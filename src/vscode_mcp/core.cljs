@@ -18,6 +18,74 @@
 (def running? state/running?)
 (def server-info state/server-info)
 (def cursor-registered? state/cursor-registered?)
+
+;; The server's state, which the library keeps for a consumer that hands the lifecycle
+;; functions its config alone. The lifecycle state holds the server and its sockets,
+;; so it is kept apart from the server's state, which is plain data.
+
+(defonce ^:private !lifecycle-states (atom {}))
+
+(defonce ^:private !server-states (atom {}))
+
+(defn server-state
+  "Returns the state of `config`'s server as plain data: whether it runs, starts or
+   stops, where it listens, its port file, the error of a start that failed, its name
+   in Cursor, and the error of a Cursor registration that failed."
+  [config]
+  (get @!server-states (:server/name config) state/stopped-server-state))
+
+(defn- lifecycle-state
+  [config]
+  (get @!lifecycle-states (:server/name config) (init-state)))
+
+(defn- change-server-state!
+  "Puts `changes` in the state of `config`'s server, and reports the state through
+   `:mcp/on-server-changed` when that changed it. Returns the state."
+  [config changes]
+  (let [before (server-state config)
+        after (state/changed-server-state before changes)]
+    (when (not= before after)
+      (swap! !server-states assoc (:server/name config) after)
+      (when-let [on-server-changed (:mcp/on-server-changed config)]
+        (on-server-changed after)))
+    after))
+
+(defn- keep-lifecycle-state!
+  "Keeps `lifecycle-state` for `config`'s server, and returns the server's state after it."
+  [config lifecycle-state]
+  (swap! !lifecycle-states assoc (:server/name config) lifecycle-state)
+  (change-server-state! config (state/server-facts lifecycle-state)))
+
+(defn- reporting
+  "Returns `config` with the lifecycle callbacks that keep the server's state, in
+   place of a consumer's own."
+  [config]
+  (assoc config
+         :lifecycle/on-starting-changed
+         (fn [starting?]
+           (change-server-state! config {:server/starting? (boolean starting?)}))
+
+         :lifecycle/on-stopping-changed
+         (fn [stopping?]
+           (change-server-state! config {:server/stopping? (boolean stopping?)}))
+
+         :lifecycle/on-running-changed
+         (fn [running? server-info]
+           (change-server-state! config (dissoc (state/server-facts {:lifecycle/server-info (when running? server-info)})
+                                                :lifecycle/registered-name)))
+
+         :lifecycle/on-cursor-registered
+         (fn [result]
+           (change-server-state! config {:lifecycle/registered-name (:name result)
+                                         :lifecycle/registration-error nil}))
+
+         :lifecycle/on-cursor-registration-failed
+         (fn [failure]
+           (change-server-state! config {:lifecycle/registration-error (state/registration-error failure)}))
+
+         :mcp/on-error
+         (fn [error]
+           (change-server-state! config {:server/error (or (ex-message error) (str error))}))))
 (defn- resolve-wrapper-path
   [config]
   (wrapper-install/installed-path (:lifecycle/wrapper-install-dir config)
@@ -140,7 +208,10 @@
             strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
                            :lifecycle/instance-slug instance-slug}
             port-file-uri (primary-port-file-uri config server-name instance-slug)
-            request-port-value (when request-port (request-port extension-context strategy-opts))
+            request-port-value (cond
+                                 request-port (request-port extension-context strategy-opts)
+                                 (:lifecycle/cursor-mode? strategy-opts) 0
+                                 :else (:server/request-port config))
             register-allowed? (policy/should-register-on-start?
                                {:mcp/auto-register? (:mcp/auto-register? config)
                                 :mcp/cursor-available? (cursor-mode? config)
@@ -189,7 +260,7 @@
      nil)
     (p/resolved nil)))
 
-(defn maybe-start!+
+(defn- maybe-start-flow!+
   [config state silent?]
   (registry/set-extension-host-env!)
   (let [{:mcp/keys [auto-start? auto-register? auto-register-eca?]} config]
@@ -206,12 +277,40 @@
         (start-flow!+ config state silent?)
         state))))
 
-(defn start!+
-  [config state silent?]
-  (registry/set-extension-host-env!)
-  (start-flow!+ config state silent?))
+(defn- run-flow!+
+  "Runs `flow`, a function of a config and a lifecycle state to a promise of the next
+   lifecycle state, for `config`'s server with the state the library keeps. Returns a
+   promise of the server's state."
+  [config flow]
+  (let [config (reporting config)]
+    (p/then (flow config (lifecycle-state config))
+            (fn [lifecycle-state]
+              (keep-lifecycle-state! config lifecycle-state)))))
 
-(defn register-with-cursor!+
+(defn maybe-start!+
+  "Starts `config`'s server when its settings and what is installed call for it, without
+   a message. Returns a promise of the server's state. With a lifecycle `state` and
+   `silent?`, it returns a promise of the next lifecycle state, for a consumer that
+   keeps that itself."
+  ([config]
+   (run-flow!+ config #(maybe-start-flow!+ %1 %2 true)))
+  ([config state silent?]
+   (maybe-start-flow!+ config state silent?)))
+
+(defn start!+
+  "Starts `config`'s server, and shows how to connect to it. Returns a promise of the
+   server's state, with `:server/error` when the start failed. With a lifecycle `state`
+   and `silent?`, it returns a promise of the next lifecycle state, for a consumer that
+   keeps that itself."
+  ([config]
+   (run-flow!+ config (fn [config state]
+                        (registry/set-extension-host-env!)
+                        (start-flow!+ config state false))))
+  ([config state silent?]
+   (registry/set-extension-host-env!)
+   (start-flow!+ config state silent?)))
+
+(defn- register-flow!+
   "Ensure the socket server is running, then register with Cursor using the
    uniform generation-suffixed name path."
   [config state]
@@ -229,7 +328,44 @@
            :state state''
            :reason (when-not (cursor-registered? state'') :registration-failed)})))))
 
-(defn stop!+
+(defn- registration-failed!
+  "Puts a failed Cursor registration in the state of `config`'s server, and returns the state."
+  [config failure]
+  (change-server-state! config {:lifecycle/registration-error (state/registration-error failure)}))
+
+(defn- register-kept!+
+  "Registers `config`'s server with Cursor, starting it when it doesn't run, with the
+   state the library keeps. A server that this starts is kept also when the
+   registration then fails. Returns a promise of the server's state."
+  [config]
+  (registry/set-extension-host-env!)
+  (if-not (cursor/cursor-mcp-available?)
+    (p/resolved (registration-failed! config {:reason :cursor-api-unavailable}))
+    (-> (p/let [state (lifecycle-state config)
+                started (if (running? state)
+                          state
+                          (start-flow!+ config state true {:lifecycle/skip-register? true}))
+                _ (keep-lifecycle-state! config started)
+                info (server-info started)]
+          (if-not info
+            (registration-failed! config {:reason :registration-failed})
+            (p/let [registered (do-register!+ config started info)]
+              (keep-lifecycle-state! config registered))))
+        (p/catch (fn [error]
+                   (registration-failed! config {:reason :registration-failed
+                                                 :error error}))))))
+
+(defn register-with-cursor!+
+  "Registers `config`'s server with Cursor, starting it when it doesn't run. Returns a
+   promise of the server's state, with `:lifecycle/registration-error` when it didn't
+   register. With a lifecycle `state`, it returns a promise of `{:ok … :reason … :state …}`,
+   for a consumer that keeps the lifecycle state itself."
+  ([config]
+   (register-kept!+ (reporting config)))
+  ([config state]
+   (register-flow!+ config state)))
+
+(defn- stop-flow!+
   [config state stop-options]
   (let [{:lifecycle/keys [silent?]} (normalize-stop-options stop-options)]
     (if-not (running? state)
@@ -264,3 +400,14 @@
                        (notify! on-running-changed false nil)
                        (notify! on-stopping-changed false)
                        (init-state))))))))
+
+(defn stop!+
+  "Stops `config`'s server, with a message unless `stop-options` has `:lifecycle/silent?`.
+   Returns a promise of the server's state. With a lifecycle `state`, it returns a
+   promise of the next lifecycle state, for a consumer that keeps that itself."
+  ([config]
+   (stop!+ config nil))
+  ([config stop-options]
+   (run-flow!+ config #(stop-flow!+ %1 %2 stop-options)))
+  ([config state stop-options]
+   (stop-flow!+ config state stop-options)))

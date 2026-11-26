@@ -69,8 +69,12 @@
         (swap! !writers assoc-in [key :last-payload] payload)))))
 
 (defn- custom-data+
+  "Promise of what the entry holds beside the library's own fields: the map in
+   `:registry/custom-data`, or what the function in `:registry/custom-data+` resolves to."
   [config]
-  (if-let [f (:registry/custom-data+ config)]
+  (if-let [f (if (map? (:registry/custom-data config))
+               (constantly (:registry/custom-data config))
+               (:registry/custom-data+ config))]
     (-> (p/let [data (f {})]
           (if (map? data) data {}))
         (p/catch (fn [err]

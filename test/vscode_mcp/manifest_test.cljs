@@ -2,6 +2,7 @@
   (:require
    ["fs" :as fs]
    ["path" :as path]
+   [cljs.reader :as reader]
    [cljs.test :refer [deftest is testing]]
    [clojure.string :as string]
    [vscode-mcp.manifest :as sut]))
@@ -225,3 +226,43 @@
       (is (= "t" (:name included-tool)))
       (is (= "Model text" (:description included-tool)))
       (is (= "User text" (:userDescription included-tool))))))
+
+(deftest manifest-as-data-test
+  (let [extension-path (test-fixture-extension-path)
+        context #js {:extensionPath extension-path
+                     :extension #js {:packageJSON
+                                     #js {:name "an-extension"
+                                          :version "1.2.3"
+                                          :contributes
+                                          #js {:languageModelTools
+                                               #js [#js {:name "always" :modelDescription "Always there"
+                                                         :userDescription "For people"
+                                                         :inputSchema #js {:type "object"
+                                                                           :properties #js {:code #js {:type "string"}}
+                                                                           :required #js ["code"]}}
+                                                    #js {:name "sometimes" :modelDescription "By a setting"
+                                                         :when "config.x.enabled"
+                                                         :inputSchema #js {:type "object" :properties #js {}}}]
+                                               :chatSkills #js [#js {:path "stubs/skills/test-skill/SKILL.md"}]}}}}
+        data (sut/manifest-data context)
+        settings {:settings {"config.x.enabled" false}}]
+    (testing "the manifest as data is plain data"
+      (is (= "an-extension" (:manifest/name data)))
+      (is (= "1.2.3" (:manifest/version data)))
+      (is (= ["always" "sometimes"] (mapv #(get % "name") (:manifest/tools data))))
+      (is (= extension-path (:manifest/extension-path data)))
+      (is (= data (reader/read-string (pr-str data)))
+          "It prints and reads back as itself, so it holds no JavaScript objects"))
+    (testing "every function gives the same for the data as for the extension context"
+      (is (= (sut/get-tools context) (sut/get-tools data)))
+      (is (= (sut/get-tools context settings) (sut/get-tools data settings)))
+      (is (= (sut/get-tools context {:includeUserDescription true}) (sut/get-tools data {:includeUserDescription true})))
+      (is (= [:allowed :disabled :unknown]
+             (mapv #(sut/tool-call-allowed? context % settings) ["always" "sometimes" "nope"])
+             (mapv #(sut/tool-call-allowed? data % settings) ["always" "sometimes" "nope"])))
+      (is (= (sut/get-resources context) (sut/get-resources data)))
+      (is (seq (sut/get-resources data)))
+      (is (= (sut/read-resource context sut/skills-index-uri) (sut/read-resource data sut/skills-index-uri)))
+      (is (= (sut/build-initialize-result context) (sut/build-initialize-result data)))
+      (is (= {:name "an-extension" :version "1.2.3"}
+             (:serverInfo (sut/build-initialize-result data)))))))

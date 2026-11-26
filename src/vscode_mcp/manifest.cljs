@@ -2,23 +2,58 @@
   (:require
    ["fs" :as fs]
    ["path" :as path]
-   [clojure.string :as string]))
+   [clojure.string :as string]
+   [clojure.walk :as walk]))
 
 (defn- oget
   "String-keyed property access on external JS data — immune to Closure
    property renaming in advanced compilation (unlike `.-prop` access, which
-   needs externs or successful inference)."
+   needs externs or successful inference). A map, as in the manifest as data, is
+   read by the same string key."
   [o k]
-  (when o (unchecked-get o k)))
+  (when o
+    (if (map? o)
+      (get o k)
+      (unchecked-get o k))))
 
 (defn- oget-in [o ks]
   (reduce oget o ks))
 
+(defn manifest-data
+  "Returns the manifest of the extension that `context` is the extension context of, as
+   data: its name and version, its tools and skills as they are in package.json with
+   string keys, and the extension's path. Every function here that takes the extension
+   context takes this map in its place."
+  [context]
+  (let [package-json (oget-in context ["extension" "packageJSON"])]
+    {:manifest/name (oget package-json "name")
+     :manifest/version (oget package-json "version")
+     :manifest/tools (js->clj (oget-in package-json ["contributes" "languageModelTools"]))
+     :manifest/skills (js->clj (oget-in package-json ["contributes" "chatSkills"]))
+     :manifest/extension-path (oget context "extensionPath")}))
+
 (defn- manifest-tools [context]
-  (oget-in context ["extension" "packageJSON" "contributes" "languageModelTools"]))
+  (if (map? context)
+    (:manifest/tools context)
+    (oget-in context ["extension" "packageJSON" "contributes" "languageModelTools"])))
 
 (defn- manifest-skills [context]
-  (oget-in context ["extension" "packageJSON" "contributes" "chatSkills"]))
+  (if (map? context)
+    (:manifest/skills context)
+    (oget-in context ["extension" "packageJSON" "contributes" "chatSkills"])))
+
+(defn- extension-path [context]
+  (if (map? context)
+    (:manifest/extension-path context)
+    (oget context "extensionPath")))
+
+(defn- name-and-version
+  "The extension's name and version, as `[name version]`."
+  [context]
+  (if (map? context)
+    [(:manifest/name context) (:manifest/version context)]
+    (let [package-json (oget-in context ["extension" "packageJSON"])]
+      [(oget package-json "name") (oget package-json "version")])))
 
 (defn- satisfies-when? [when-clause settings]
   (if (or (nil? when-clause) (empty? when-clause))
@@ -85,7 +120,10 @@
 
 (defn- tool-list-entry
   [tool include-user-description?]
-  (let [schema (js->clj (oget tool "inputSchema") :keywordize-keys true)
+  (let [input-schema (oget tool "inputSchema")
+        schema (if (map? input-schema)
+                 (walk/keywordize-keys input-schema)
+                 (js->clj input-schema :keywordize-keys true))
         entry {:name (oget tool "name")
                :description (oget tool "modelDescription")
                :inputSchema (select-keys schema [:type :properties :required])}]
@@ -156,7 +194,7 @@
   [context & [{:keys [settings] :or {settings {}}}]]
   (try
     (let [skills (manifest-skills context)
-          extension-path (oget context "extensionPath")]
+          extension-path (extension-path context)]
       (if-not skills
         []
         (->> skills
@@ -264,9 +302,9 @@
    - `:version`: Override the server version.
    - `:base-text`: Prepend custom text to the generated server instructions."
   [context & [opts]]
-  (let [package-json (oget-in context ["extension" "packageJSON"])
-        server-name (or (:name opts) (oget package-json "name") "vscode-mcp-server")
-        server-version (or (:version opts) (oget package-json "version") "0.0.0")
+  (let [[extension-name extension-version] (name-and-version context)
+        server-name (or (:name opts) extension-name "vscode-mcp-server")
+        server-version (or (:version opts) extension-version "0.0.0")
         instructions (build-server-instructions {:base-text (:base-text opts)})]
     {:protocolVersion "2024-11-05"
      :capabilities {:tools {}
