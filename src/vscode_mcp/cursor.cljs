@@ -72,7 +72,7 @@
 
 (defn cleanup-tracked-registrations!+
   "Unregisters every tracked name except `keep-name`."
-  [{:vscode/keys [^js extension-context] :as options} keep-name]
+  [options keep-name]
   (let [tracked (set (read-registered-names options))
         stale (remove #{keep-name} tracked)]
     (p/let [_ (p/all (map unregister-by-name!+ stale))]

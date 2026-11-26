@@ -31,7 +31,7 @@
    run the server, and an optional product-specific suffix (e.g. a BD README blurb)."
   ([server-info] (format-start-message server-info nil))
   ([server-info {:manual-setup/keys [message-suffix extension-name]}]
-   (let [{:server/keys [assigned-port port-note server-name]} server-info
+   (let [{:server/keys [assigned-port port-note]} server-info
          base (str extension-name ": " port-note " MCP socket server started on port: " assigned-port
                    ". " two-ways-text)]
      (if (seq message-suffix)
