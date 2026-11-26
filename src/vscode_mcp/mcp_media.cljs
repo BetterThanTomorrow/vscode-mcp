@@ -52,7 +52,7 @@
 
 (defn- media-key
   [config server-info]
-  [(:cursor/server-name config) (:server/instance-slug server-info)])
+  [(:server/name config) (:server/instance-slug server-info)])
 
 (defn- find-key
   [server-name]
@@ -102,7 +102,7 @@
   [{:keys [config server-info]}]
   (when-let [key (or (when (and config server-info)
                        (media-key config server-info))
-                     (find-key (:cursor/server-name config)))]
+                     (find-key (:server/name config)))]
     (when-let [entry (get @!media key)]
       (clear-entry-timers! entry)
       (swap! !media dissoc key))))
@@ -127,12 +127,12 @@
 (defn on-started!
   "Waits 10 minutes, then sweeps the window media dir every 60 seconds while running."
   [{:keys [config server-info] :as ctx}]
-  (when (and (:cursor/server-name config)
+  (when (and (:server/name config)
              (:server/instance-slug server-info))
     (let [key (media-key config server-info)]
       (when-let [existing (get @!media key)]
         (clear-entry-timers! existing))
       (schedule-sweeps! ctx key
                         (media-dir config
-                                   (:cursor/server-name config)
+                                   (:server/name config)
                                    (:server/instance-slug server-info))))))

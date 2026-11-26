@@ -40,12 +40,14 @@
   "Upsert the managed stdio MCP entry into project-local `.eca/config.json`.
 
    Never throws past the promise boundary. Activates the ECA extension before
-   any read/write. Server key is `:cursor/server-name` (base name, not the
+   any read/write. Server key is `:server/name` (base name, not the
    generation-suffixed Cursor name). The entry loads the wrapper (optional
    `:cursor/wrapper-path`, else the extension's copy) through
    `eca-config/desired-entry`, and names the port file and host only when
    `:registry/enabled?` is false."
-  [{:cursor/keys [server-name script-relative-path wrapper-path]
+  [{server-name :server/name
+    :wrapper/keys [script-relative-path]
+    :cursor/keys [wrapper-path]
     :vscode/keys [extension-context]
     :registry/keys [enabled?]
     :server/keys [port-file-uri host]}]
@@ -65,7 +67,7 @@
                   resolved-wrapper (or wrapper-path
                                        (cursor-config/wrapper-script-path
                                         {:vscode/extension-context extension-context
-                                         :cursor/script-relative-path script-relative-path}))
+                                         :wrapper/script-relative-path script-relative-path}))
                   desired (eca-config/desired-entry
                            {:os/home-dir (os/homedir)
                             :os/platform js/process.platform

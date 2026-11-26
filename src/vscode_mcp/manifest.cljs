@@ -8,13 +8,9 @@
 (defn- oget
   "String-keyed property access on external JS data — immune to Closure
    property renaming in advanced compilation (unlike `.-prop` access, which
-   needs externs or successful inference). A map, as in the manifest as data, is
-   read by the same string key."
+   needs externs or successful inference)."
   [o k]
-  (when o
-    (if (map? o)
-      (get o k)
-      (unchecked-get o k))))
+  (when o (unchecked-get o k)))
 
 (defn- oget-in [o ks]
   (reduce oget o ks))
@@ -22,8 +18,8 @@
 (defn manifest-data
   "Returns the manifest of the extension that `context` is the extension context of, as
    data: its name and version, its tools and skills as they are in package.json with
-   string keys, and the extension's path. Every function here that takes the extension
-   context takes this map in its place."
+   string keys, and the extension's path. The other functions here take this map as
+   their `manifest`."
   [context]
   (let [package-json (oget-in context ["extension" "packageJSON"])]
     {:manifest/name (oget package-json "name")
@@ -31,29 +27,6 @@
      :manifest/tools (js->clj (oget-in package-json ["contributes" "languageModelTools"]))
      :manifest/skills (js->clj (oget-in package-json ["contributes" "chatSkills"]))
      :manifest/extension-path (oget context "extensionPath")}))
-
-(defn- manifest-tools [context]
-  (if (map? context)
-    (:manifest/tools context)
-    (oget-in context ["extension" "packageJSON" "contributes" "languageModelTools"])))
-
-(defn- manifest-skills [context]
-  (if (map? context)
-    (:manifest/skills context)
-    (oget-in context ["extension" "packageJSON" "contributes" "chatSkills"])))
-
-(defn- extension-path [context]
-  (if (map? context)
-    (:manifest/extension-path context)
-    (oget context "extensionPath")))
-
-(defn- name-and-version
-  "The extension's name and version, as `[name version]`."
-  [context]
-  (if (map? context)
-    [(:manifest/name context) (:manifest/version context)]
-    (let [package-json (oget-in context ["extension" "packageJSON"])]
-      [(oget package-json "name") (oget package-json "version")])))
 
 (defn- satisfies-when? [when-clause settings]
   (if (or (nil? when-clause) (empty? when-clause))
@@ -65,16 +38,16 @@
 
 (defn- find-tool-by-name [tools tool-name]
   (when tools
-    (some #(when (= (oget % "name") tool-name) %) tools)))
+    (some #(when (= (get % "name") tool-name) %) tools)))
 
 (defn tool-call-allowed?
   "Returns :allowed, :disabled, or :unknown for a tool name against manifest when clauses."
-  [context tool-name & [{:keys [settings] :or {settings {}}}]]
-  (let [tools (manifest-tools context)
+  [manifest tool-name & [{:keys [settings] :or {settings {}}}]]
+  (let [tools (:manifest/tools manifest)
         tool (find-tool-by-name tools tool-name)]
     (cond
       (nil? tool) :unknown
-      (satisfies-when? (oget tool "when") settings) :allowed
+      (satisfies-when? (get tool "when") settings) :allowed
       :else :disabled)))
 
 (defn- clean-yaml-value [v]
@@ -120,29 +93,25 @@
 
 (defn- tool-list-entry
   [tool include-user-description?]
-  (let [input-schema (oget tool "inputSchema")
-        schema (if (map? input-schema)
-                 (walk/keywordize-keys input-schema)
-                 (js->clj input-schema :keywordize-keys true))
-        entry {:name (oget tool "name")
-               :description (oget tool "modelDescription")
+  (let [schema (walk/keywordize-keys (get tool "inputSchema"))
+        entry {:name (get tool "name")
+               :description (get tool "modelDescription")
                :inputSchema (select-keys schema [:type :properties :required])}]
     (cond-> entry
-      include-user-description? (assoc :userDescription (oget tool "userDescription")))))
+      include-user-description? (assoc :userDescription (get tool "userDescription")))))
 
 (defn get-tools
-  "Reads `contributes.languageModelTools` from the extension's package.json
-   and returns them in the format expected by MCP `tools/list`.
+  "Returns the `manifest`'s tools in the format expected by MCP `tools/list`.
    `settings` is an optional map of {when-clause boolean} to filter tools.
    `includeUserDescription` adds each tool's package.json `userDescription`."
-  [context & [{:keys [settings includeUserDescription] :or {settings {}}}]]
+  [manifest & [{:keys [settings includeUserDescription] :or {settings {}}}]]
   (try
-    (let [tools (manifest-tools context)]
+    (let [tools (:manifest/tools manifest)]
       (if-not tools
         []
         (->> tools
              (filter (fn [tool]
-                       (satisfies-when? (oget tool "when") settings)))
+                       (satisfies-when? (get tool "when") settings)))
              (map #(tool-list-entry % includeUserDescription))
              vec)))
     (catch js/Error e
@@ -170,7 +139,7 @@
                  resources)})
 
 (defn- read-skill-resource [extension-path skill]
-  (let [skill-path (oget skill "path")
+  (let [skill-path (get skill "path")
         abs-path (path/join extension-path skill-path)]
     (try
       (let [content (fs/readFileSync abs-path "utf8")
@@ -191,15 +160,15 @@
    reads their frontmatter to extract `name` and `description`,
    and returns them in the format expected by MCP `resources/list`.
    `settings` is an optional map of {when-clause boolean} to filter skills."
-  [context & [{:keys [settings] :or {settings {}}}]]
+  [manifest & [{:keys [settings] :or {settings {}}}]]
   (try
-    (let [skills (manifest-skills context)
-          extension-path (extension-path context)]
+    (let [skills (:manifest/skills manifest)
+          extension-path (:manifest/extension-path manifest)]
       (if-not skills
         []
         (->> skills
              (filter (fn [skill]
-                       (satisfies-when? (oget skill "when") settings)))
+                       (satisfies-when? (get skill "when") settings)))
              (keep (fn [skill]
                      (read-skill-resource extension-path skill)))
              vec)))
@@ -271,8 +240,8 @@
 (defn read-resource
   "Given a resource URI requested via MCP `resources/read`, looks up the resource
    and returns its content. Returns nil if not found."
-  [^js context uri & [options]]
-  (let [resources (get-resources context options)]
+  [manifest uri & [options]]
+  (let [resources (get-resources manifest options)]
     (cond
       (= uri skills-index-uri)
       {:uri uri
@@ -301,10 +270,9 @@
    - `:name`: Override the server name.
    - `:version`: Override the server version.
    - `:base-text`: Prepend custom text to the generated server instructions."
-  [context & [opts]]
-  (let [[extension-name extension-version] (name-and-version context)
-        server-name (or (:name opts) extension-name "vscode-mcp-server")
-        server-version (or (:version opts) extension-version "0.0.0")
+  [manifest & [opts]]
+  (let [server-name (or (:name opts) (:manifest/name manifest) "vscode-mcp-server")
+        server-version (or (:version opts) (:manifest/version manifest) "0.0.0")
         instructions (build-server-instructions {:base-text (:base-text opts)})]
     {:protocolVersion "2024-11-05"
      :capabilities {:tools {}

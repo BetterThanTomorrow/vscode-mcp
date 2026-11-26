@@ -73,7 +73,7 @@
     (let [info (sut/mcp-info
                 {:server/host "127.0.0.1"
                  :lifecycle/wrapper-install-dir "/home/x/.config/ext"
-                 :cursor/script-relative-path "dist/calva-mcp-server.js"}
+                 :wrapper/script-relative-path "dist/calva-mcp-server.js"}
                 {:server/assigned-port 1664
                  :server/host "127.0.0.1"
                  :server/port-file-uri #js {:fsPath "/tmp/port"}})]

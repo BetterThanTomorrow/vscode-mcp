@@ -17,7 +17,7 @@ Ask yourself: Will this and the tests work on Windows too?
 **Responsibility split**
 
 - **Library:** start/stop socket, port file under `~/.config/vscode-mcp/port-files/`, install wrapper, Cursor register/unregister, ECA `.eca/config.json` upsert, optional window registry, `initialize` / `tools/list` / `resources/*` / `ping` from the Copilot manifest
-- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, when-contexts / commands / UI; opt into the registry with `:registry/enabled?` and `:registry/custom-data+`
+- **Consumer:** implement `tools/call`, pass `:mcp/on-request`, settings → `create-config`, when-contexts / commands / UI from the server's state; opt into the registry with `:registry/enabled?` and `:registry/custom-data`
 
 Do **not** look here for BD’s Ex/`app-db` or Joyride’s SCI eval — those live in the consumer repos.
 
@@ -59,7 +59,7 @@ Ship order for library features that need consumer wiring: commit the library (i
 
 **ECA default:** library `:mcp/auto-register-eca?` defaults to **`false`** so a bare SHA bump stays inert. User-facing default `true` lives in the consumer’s `package.json` setting, wired into `create-config`.
 
-**Registry default:** `:registry/enabled?` defaults to **`false`**. Consumers that want window entries pass `true` and supply `:registry/custom-data+`.
+**Registry default:** `:registry/enabled?` defaults to **`false`**. Consumers that want window entries pass `true` and supply `:registry/custom-data`.
 
 ## Development in this repo
 
@@ -75,13 +75,14 @@ The tests in `test-process/` start the compiled stdio wrapper, `out/stdio-wrappe
 
 | Namespace | Purpose |
 |-----------|---------|
-| `vscode-mcp.core` | Public lifecycle API (`create-config`, `maybe-start!+`, `start!+`, `stop!+`, …) |
-| `vscode-mcp.lifecycle` | Pure state/config helpers (no VS Code API) |
+| `vscode-mcp.core` | Public lifecycle API (`create-config`, `maybe-start!+`, `start!+`, `stop!+`, …). Keeps the server and its state |
+| `vscode-mcp.lifecycle` | Pure state/config helpers (no VS Code API): the server's state as data |
 | `vscode-mcp.port-file` | Port file under `~/.config/vscode-mcp/port-files/<serverName>-<windowId>.port` + stale sweep |
 | `vscode-mcp.server` | TCP MCP socket server + port file I/O |
-| `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main). With no port argument, it connects to the caller's window |
+| `vscode-mcp.stdio.wrapper` | Node stdio ↔ socket relay (`shadow-cljs` `:stdio-wrapper` main). With no port argument, it connects to the caller's window. The shell: it dispatches what happens as actions and performs effects |
+| `vscode-mcp.stdio.wrapper-axs` | The wrapper's decisions: `handle-action`, from the wrapper's state and one action to the next state and the effects |
 | `vscode-mcp.stdio.window-lookup` | The caller's window for the wrapper: `VSCODE_MCP_EXTENSION_HOST`, process ancestry, `VSCODE_MCP_WINDOW_ID`, the working directory, live entries |
-| `vscode-mcp.manifest` | Copilot package.json → tools/resources/skills |
+| `vscode-mcp.manifest` | Copilot package.json → tools/resources/skills. `manifest-data` reads the manifest into data, and the other functions take that map |
 | `vscode-mcp.requests` | `handle-manifest-request` for non-`tools/call` methods |
 | `vscode-mcp.responses` | MCP response helpers |
 | `vscode-mcp.cursor` / `cursor-config` | Cursor MCP register API |
@@ -90,7 +91,7 @@ The tests in `test-process/` start the compiled stdio wrapper, `out/stdio-wrappe
 | `vscode-mcp.wrapper-install` | Symlink (DEBUG) / copy (release) into `:lifecycle/wrapper-install-dir` |
 | `vscode-mcp.server-readiness` | TCP probe before Cursor registration |
 | `vscode-mcp.registry` | Entry schema, paths, atomic writes, dead-pid sweep |
-| `vscode-mcp.registry-writer` | Process-local writer: heartbeat, debounce, generation fencing |
+| `vscode-mcp.registry-writer` | The window's entry as data, written at start, after a change (debounced) and on the heartbeat |
 
 ## Consumer wiring (contract)
 
@@ -106,7 +107,7 @@ Consumers add a shadow-cljs build:
 
 ### Request handling
 
-Implement `:mcp/on-request` with local `tools/call`; delegate everything else to `vscode-mcp.requests/handle-manifest-request`.
+Implement `:mcp/on-request` with local `tools/call`; delegate everything else to `vscode-mcp.requests/handle-manifest-request`, which takes the manifest as data (`manifest/manifest-data extension-context`, read once or per request). The handler returns a response map or a promise of one, native or promesa's, and nil or a promise of nil for what gets no answer.
 
 `handle-manifest-request` covers `initialize`, `tools/list`, `resources/list`, `resources/read` (static skills), `resources/templates/list`, and `ping`.
 
@@ -116,20 +117,36 @@ Pass `:settings` when tools/skills use `when` clauses in `package.json` (literal
 
 ### Lifecycle
 
-`vscode-mcp.core` drives start/stop, Cursor registration, and the manual-start dialog. Rebuild the config on every lifecycle call so settings apply on the next start. Hold one lifecycle state atom in the consumer.
+`vscode-mcp.core` runs the server from the config a consumer hands it, and keeps the server and its state. The consumer gets the server's state as plain data: as what each lifecycle function resolves to, and through `:mcp/on-server-changed` whenever it changes. Rebuild the config on every call so settings apply on the next start.
 
 | Function | Purpose |
 |----------|---------|
-| `init-state` | Fresh lifecycle state |
 | `create-config` | Merge opts with defaults (`:server/host` → `"127.0.0.1"`; `:mcp/auto-register-eca?` → `false`; `:registry/enabled?` → `false`) |
-| `running?` / `server-info` / `cursor-registered?` | Query state |
-| `maybe-start!+` | Start when policy allows |
-| `start!+` | Always start (+ manual-setup dialog when not silent) |
-| `stop!+` | Unregister Cursor (best-effort), stop socket, unlink the registry file |
-| `register-with-cursor!+` | Start if needed, then register |
-| `update-registry!+` | Debounced refresh of `:registry/custom-data+` using live server-info |
+| `maybe-start!+ config` | Start when policy allows, without a message |
+| `start!+ config` | Start, and show the manual-setup dialog |
+| `stop!+ config` / `stop!+ config {:lifecycle/silent? true}` | Unregister Cursor (best-effort), stop socket, unlink the registry file |
+| `register-with-cursor!+ config` | Start if needed, then register |
+| `update-registry!+ config` | Take the config's `:registry/custom-data` for the running server's entry, written after the debounce time |
+| `server-state config` | The server's state, as below |
 
-Required: `:lifecycle/wrapper-install-dir`. On every start the library installs the stdio wrapper there and uses that path for manual-setup and ECA (ECA's entry finds it under `os.homedir()` when it is under home).
+The config, beside the settings: `:vscode/extension-context`, `:server/name` (the registry entry, the port file and the ECA entry are named by it), `:wrapper/script-relative-path`, `:lifecycle/wrapper-install-dir` (required: on every start the library installs the stdio wrapper there and uses that path for manual-setup and ECA), `:manual-setup/extension-name`, `:server/request-port` (the library listens on port 0 when it registers with Cursor), `:registry/custom-data`, and three functions: `:mcp/on-request`, `:mcp/on-log` and `:mcp/on-server-changed`.
+
+The server's state, a plain map:
+
+```clojure
+{:server/running? true
+ :server/starting? false
+ :server/stopping? false
+ :server/host "127.0.0.1"
+ :server/assigned-port 49311
+ :server/instance-slug "ws-bxnohh"
+ :server/port-file-path "/Users/me/.config/vscode-mcp/port-files/my-server-ws-bxnohh.port"
+ :server/error nil                           ; the message of a start that failed
+ :lifecycle/registered-name nil              ; the server's name in Cursor
+ :lifecycle/registration-error nil}          ; {:reason :cursor-api-unavailable} when a registration failed
+```
+
+A failure is in the data. A consumer shows its own messages for `:server/error` and `:lifecycle/registration-error`, and computes its when-contexts from the state.
 
 Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}`.
 
@@ -137,9 +154,9 @@ Call `maybe-start!+` from `activate`. Deactivate with `{:lifecycle/silent? true}
 
 Feature doc: [docs/registry.md](docs/registry.md).
 
-Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`), and sets `VSCODE_MCP_WINDOW_ID` to the window's id in its terminals. `stop!+` fences in-flight writes and unlinks the registry file.
+Inert until the consumer passes `:registry/enabled? true`. On start the library sweeps dead-pid files under `~/.config/vscode-mcp/registry/windows/` (override with `:registry/dir`), writes `<server-name>-<window-id>.json`, heartbeats `updatedAt` every 30s (`:registry/heartbeat-ms`), and sets `VSCODE_MCP_WINDOW_ID` to the window's id in its terminals. `stop!+` forgets the entry, so no timer writes it again, and unlinks the registry file.
 
-`:registry/custom-data+` is `(fn [state] …)` → `Promise<map>` merged onto the entry; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. Call `update-registry!+` when that data changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
+`:registry/custom-data` is a map merged onto the entry; core envelope keys (`schemaVersion`, `name`, `serverName`, `windowId`, `appId`, `workspaceRoot`, `workspaceFolder`, `hostname`, `pid`, `updatedAt`, `mcp`) cannot be overwritten. The entry written at start has the data in the config of that start. Call `update-registry!+` with a config that has the new data when it changes (1s debounce via `:registry/debounce-ms`). `mcp` is omitted until the socket has an assigned port.
 
 On first `on-started!+` in the Extension Host process, the library also installs registry-home support files (`README.md`, `AGENTS.md`, `bb-mcp.md`, `bb.edn`, `scripts/list_registry.clj`, `scripts/mcp.clj`, `scripts/mcp_briefing.clj`) fire-and-forget from a debug sibling checkout or GitHub `master`. Grow `consumer-files` only after those paths exist; add the listing `mcp` task in the same batch as `scripts/mcp.clj`. Installed `bb-mcp.md` starts agents on `--readme` / `--readme-tool`. Media sweep is hooked from `registry-writer` (`vscode-mcp.mcp-media`), not from `core/start-flow!+`. No extra `create-config` key. Details: [docs/registry.md](docs/registry.md).
 
@@ -206,7 +223,7 @@ The managed entry is the same on every machine. `node -e` loads the wrapper with
 
 The script holds no `$`, `"`, space or tab, so ECA's `$VAR` expansion leaves it alone and Java's `ProcessBuilder` passes it on Windows without quoting. Characters other than letters, digits and `._/:-` in the path are written as `\uXXXX` escapes. A wrapper outside the home directory is required by its absolute path, with forward slashes, and that entry names the machine. With `:registry/enabled?` false the wrapper can't find the caller's window, so the args end with the library port file's path (`fsPath`, under `~/.config/vscode-mcp/port-files/`) and the host, and the entry names the machine too. The library does not write a workspace mirror (no `.calva` / `.joyride` MCP port file). Discovery for agents is the window registry; manual stdio configs point at the library port file path.
 
-Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:cursor/server-name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match. Tests: `test/vscode_mcp/eca_config_test.cljs`, and `test-bb/eca_entry_test.clj`, which starts the `node -e` commands that `eca_config_test.cljs` writes to `.tmp/eca-entry-fixture.json` through Java's process API, as ECA does, so `bb test-bb` alone needs a `bb test` run first.
+Writes project-local `.eca/config.json` only; managed fields `command` / `args`; preserves siblings. Server key = `:server/name` base (not generation-suffixed). Independent of Cursor (neither rolls back the other). No deregister on stop, no ECA command/when-contexts. Idempotent when managed fields already match. Tests: `test/vscode_mcp/eca_config_test.cljs`, and `test-bb/eca_entry_test.clj`, which starts the `node -e` commands that `eca_config_test.cljs` writes to `.tmp/eca-entry-fixture.json` through Java's process API, as ECA does, so `bb test-bb` alone needs a `bb test` run first.
 
 ## Limitations
 

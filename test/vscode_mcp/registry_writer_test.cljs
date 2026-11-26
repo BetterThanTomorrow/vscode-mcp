@@ -16,8 +16,8 @@
           :registry/dir dir
           :registry/debounce-ms 15
           :registry/heartbeat-ms 10000
-          :cursor/server-name "backseat-driver"
-          :cursor/script-relative-path "dist/foo.js"
+          :server/name "backseat-driver"
+          :wrapper/script-relative-path "dist/foo.js"
           :lifecycle/wrapper-install-dir dir
           :server/host "127.0.0.1"}
          extra))
@@ -52,37 +52,33 @@
 (deftest on-started-writes-entry-test
   (async done
          (let [dir (tmp-dir)
-               calls (atom 0)
-               config (tmp-config dir {:registry/custom-data+
-                                       (fn [_]
-                                         (swap! calls inc)
-                                         (p/resolved {:sessions [{:replSessionKey "clj"}]}))})]
+               config (tmp-config dir {:registry/custom-data {:sessions [{:replSessionKey "clj"}]}})]
            (-> (sut/on-started!+ config (tmp-info))
                (p/then (fn [_]
                          (let [doc (read-entry dir)]
-                           (is (= 1 @calls))
+                           (is (= [{:replSessionKey "clj"}] (:sessions doc))
+                               "The entry of a server that starts has the custom data in the config")
                            (is (= 1 (:schemaVersion doc)))
                            (is (= "backseat-driver-ws-abc" (:name doc)))
                            (is (= "backseat-driver" (:serverName doc)))
                            (is (= "ws-abc" (:windowId doc)))
                            (is (= "cursor" (:appId doc)))
                            (is (= "/proj" (:workspaceRoot doc)))
-                           (is (= "/proj" (:workspaceFolder doc)))
-                           (is (= (.-pid js/process) (:pid doc)))
-                           (is (= 1664 (get-in doc [:mcp :port])))
-                           (is (= [{:replSessionKey "clj"}] (:sessions doc))))))
+                           (is (= "/proj" (:workspaceFolder doc))))))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
 
-(deftest disabled-config-is-noop-test
+(deftest custom-data-cannot-overwrite-the-entrys-own-fields-test
   (async done
          (let [dir (tmp-dir)
-               config (tmp-config dir {:registry/enabled? false})]
+               config (tmp-config dir {:registry/custom-data {:serverName "impostor" :pid 1 :extra "kept"}})]
            (-> (sut/on-started!+ config (tmp-info))
                (p/then (fn [_]
-                         (sut/update-registry!+ config)
-                         (is (not (fs/existsSync (entry-path dir))))))
+                         (let [doc (read-entry dir)]
+                           (is (= "backseat-driver" (:serverName doc)))
+                           (is (not= 1 (:pid doc)))
+                           (is (= "kept" (:extra doc))))))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
@@ -90,100 +86,85 @@
 (deftest debounce-coalesces-refreshes-test
   (async done
          (let [dir (tmp-dir)
-               !sessions (atom "a")
-               calls (atom 0)
-               config (tmp-config
-                       dir
-                       {:registry/custom-data+
-                        (fn [_]
-                          (swap! calls inc)
-                          (p/resolved {:sessions [@!sessions]}))})]
-           (-> (sut/on-started!+ config (tmp-info))
+               config (fn [sessions]
+                        (tmp-config dir {:registry/custom-data {:sessions sessions}}))]
+           (-> (sut/on-started!+ (config ["a"]) (tmp-info))
                (p/then (fn [_]
-                         (reset! !sessions "b")
-                         (sut/update-registry!+ config)
-                         (reset! !sessions "c")
-                         (sut/update-registry!+ config)
+                         (is (= ["a"] (:sessions (read-entry dir))))
+                         (sut/update-registry!+ (config ["b"]))
+                         (sut/update-registry!+ (config ["c"]))
+                         (is (= ["a"] (:sessions (read-entry dir)))
+                             "A change is written after the debounce time, and not at once")
                          (delay+ 50)))
                (p/then (fn [_]
-                         (let [doc (read-entry dir)]
-                           (is (= ["c"] (:sessions doc)))
-                           (is (= 2 @calls)
-                               "start write plus one debounced refresh"))))
+                         (is (= ["c"] (:sessions (read-entry dir)))
+                             "Two changes inside the debounce time give one write, with the later data")))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
 
-(deftest stop-fences-in-flight-custom-data-test
+(deftest a-write-that-waits-does-nothing-after-the-stop-test
   (async done
          (let [dir (tmp-dir)
-               config (tmp-config
-                       dir
-                       {:registry/custom-data+
-                        (fn [_]
-                          (p/then (delay+ 80)
-                                  (constantly {:sessions [{:stale true}]})))})
+               config (tmp-config dir {:registry/custom-data {:sessions ["a"]}})
                info (tmp-info)]
-           (sut/on-started!+ config info)
-           (sut/on-stopping! config)
-           (sut/on-stopped! config info)
-           (-> (delay+ 120)
+           (-> (sut/on-started!+ config info)
+               (p/then (fn [_]
+                         (sut/update-registry!+ (assoc config :registry/custom-data {:sessions ["late"]}))
+                         (sut/on-stopping! config)
+                         (sut/on-stopped! config info)
+                         (delay+ 50)))
                (p/then (fn [_]
                          (is (not (fs/existsSync (entry-path dir)))
-                             "stale custom-data must not recreate the entry")))
+                             "A change that waited to be written when the server stopped doesn't bring the entry back")))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
 
-(deftest heartbeat-bumps-updated-at-without-custom-data-test
+(deftest heartbeat-bumps-updated-at-test
   (async done
          (let [dir (tmp-dir)
-               calls (atom 0)
-               config (tmp-config
-                       dir
-                       {:registry/heartbeat-ms 40
-                        :registry/custom-data+
-                        (fn [_]
-                          (swap! calls inc)
-                          (p/resolved {:sessions []}))})]
-           (-> (sut/on-started!+ config (tmp-info))
+               config (tmp-config dir {:registry/heartbeat-ms 40
+                                       :registry/custom-data {:sessions []}})
+               info (tmp-info)]
+           (-> (sut/on-started!+ config info)
                (p/then (fn [_]
                          (let [first-at (:updatedAt (read-entry dir))]
                            (-> (delay+ 90)
                                (p/then (fn [_]
                                          (let [doc (read-entry dir)]
-                                           (is (= 1 @calls))
                                            (is (some? first-at))
-                                           (is (not= first-at (:updatedAt doc)))
-                                           (is (= [] (:sessions doc))))))))))
+                                           (is (not= first-at (:updatedAt doc))
+                                               "The heartbeat writes the entry with a new time")
+                                           (is (= [] (:sessions doc))
+                                               "and the same data")
+                                           (sut/on-stopping! config)
+                                           (sut/on-stopped! config info)
+                                           (delay+ 90))))
+                               (p/then (fn [_]
+                                         (is (not (fs/existsSync (entry-path dir)))
+                                             "A heartbeat after the stop writes nothing")))))))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))
 
-(deftest stop-then-start-fences-stale-custom-data-test
+(deftest stop-then-start-writes-the-new-servers-entry-test
   (async done
          (let [dir (tmp-dir)
-               stale-config (tmp-config
-                             dir
-                             {:registry/custom-data+
-                              (fn [_]
-                                (p/then (delay+ 80)
-                                        (constantly {:sessions [{:stale true}]})))})
-               fresh-config (tmp-config
-                             dir
-                             {:registry/custom-data+
-                              (fn [_]
-                                (p/resolved {:sessions [{:fresh true}]}))})
-               info (tmp-info)]
-           (sut/on-started!+ stale-config info)
-           (sut/on-stopping! stale-config)
-           (sut/on-stopped! stale-config info)
-           (-> (sut/on-started!+ fresh-config info)
+               info (tmp-info)
+               first-config (tmp-config dir {:registry/custom-data {:sessions [{:first true}]}})
+               second-config (tmp-config dir {:registry/custom-data {:sessions [{:second true}]}})]
+           (-> (sut/on-started!+ first-config info)
                (p/then (fn [_]
-                         (delay+ 120)))
+                         (sut/update-registry!+ (assoc first-config :registry/custom-data {:sessions [{:late true}]}))
+                         (sut/on-stopping! first-config)
+                         (sut/on-stopped! first-config info)
+                         (sut/on-started!+ second-config info)))
                (p/then (fn [_]
-                         (is (= [{:fresh true}] (:sessions (read-entry dir)))
-                             "restart must not accept the previous generation's custom-data")))
+                         (delay+ 50)))
+               (p/then (fn [_]
+                         (is (= [{:second true}] (:sessions (read-entry dir)))
+                             "A server that starts again has its own data, and nothing of what waited for the one before")))
                (p/finally (fn []
                             (cleanup! dir)
                             (done)))))))

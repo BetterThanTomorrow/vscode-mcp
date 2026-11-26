@@ -20,7 +20,7 @@
 
 (deftest create-config-test
   (testing "defaults auto-start?, auto-register?, auto-register-eca?, host, and registry"
-    (let [config (sut/create-config {:cursor/server-name "test"})]
+    (let [config (sut/create-config {:server/name "test"})]
       (is (false? (:mcp/auto-start? config)))
       (is (true? (:mcp/auto-register? config)))
       (is (false? (:mcp/auto-register-eca? config)))
@@ -72,21 +72,6 @@
       (is (= "joyride-ws-abc-g2" (:register/unregister-name intent)))
       (is (= 3 (:register/generation intent)))
       (is (= "joyride-ws-abc-g3" (:register/register-name intent))))))
-
-(deftest create-config-names-test
-  (testing "the server's name and the wrapper's script, by either pair of keys"
-    (is (= {:server/name "joyride"
-            :cursor/server-name "joyride"
-            :wrapper/script-relative-path "dist/joyride-mcp-server.js"
-            :cursor/script-relative-path "dist/joyride-mcp-server.js"}
-           (select-keys (sut/create-config {:server/name "joyride"
-                                            :wrapper/script-relative-path "dist/joyride-mcp-server.js"})
-                        [:server/name :cursor/server-name :wrapper/script-relative-path :cursor/script-relative-path])
-           (select-keys (sut/create-config {:cursor/server-name "joyride"
-                                            :cursor/script-relative-path "dist/joyride-mcp-server.js"})
-                        [:server/name :cursor/server-name :wrapper/script-relative-path :cursor/script-relative-path]))))
-  (testing "a config without them has neither"
-    (is (not (contains? (sut/create-config {}) :server/name)))))
 
 (deftest server-facts-test
   (testing "a server that doesn't run"

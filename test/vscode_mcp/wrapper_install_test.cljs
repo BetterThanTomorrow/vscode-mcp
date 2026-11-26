@@ -25,7 +25,7 @@
         (fs/writeFileSync source-path source-content)
         (let [dest (sut/ensure-installed!
                     {:vscode/extension-context fake-ctx
-                     :cursor/script-relative-path "dist/foo-mcp-server.js"
+                     :wrapper/script-relative-path "dist/foo-mcp-server.js"
                      :lifecycle/wrapper-install-dir install-dir})]
           (is (= (sut/installed-path install-dir "dist/foo-mcp-server.js") dest))
           (is (fs/existsSync dest))

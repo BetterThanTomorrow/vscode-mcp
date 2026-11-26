@@ -14,14 +14,14 @@
   {:settings (or settings {})})
 
 (defn- public-resources
-  [context opts]
-  (->> (manifest/get-resources context (manifest-opts opts))
+  [manifest-data opts]
+  (->> (manifest/get-resources manifest-data (manifest-opts opts))
        (map #(dissoc % :skill-path))
        vec))
 
 (defn- skill-read-result
-  [context uri opts]
-  (when-let [resource (manifest/read-resource context uri (manifest-opts opts))]
+  [manifest-data uri opts]
+  (when-let [resource (manifest/read-resource manifest-data uri (manifest-opts opts))]
     {:contents [(dissoc resource :skill-path)]}))
 
 (defn- thenable?
@@ -37,20 +37,20 @@
     (responses/error-response id -32602 not-found-message)))
 
 (defn- resolve-read-result+
-  [id context uri opts hook-result]
+  [id manifest-data uri opts hook-result]
   (cond
     (thenable? hook-result)
     (.then (js/Promise.resolve hook-result)
            (fn [result]
              (if result
                (responses/success-response id result)
-               (success-for-read id (skill-read-result context uri opts) "Resource not found"))))
+               (success-for-read id (skill-read-result manifest-data uri opts) "Resource not found"))))
 
     hook-result
     (responses/success-response id hook-result)
 
     :else
-    (success-for-read id (skill-read-result context uri opts) "Resource not found")))
+    (success-for-read id (skill-read-result manifest-data uri opts) "Resource not found")))
 
 (defn- deep-merge-capabilities
   [base overlay]
@@ -62,10 +62,10 @@
               (or overlay {})))
 
 (defn- handle-initialize
-  [context id opts]
+  [manifest-data id opts]
   (let [{:keys [initialize-opts initialize-merge settings]} opts
         init-opts (merge (or initialize-opts {}) {:settings settings})
-        base (manifest/build-initialize-result context init-opts)
+        base (manifest/build-initialize-result manifest-data init-opts)
         overlay (or initialize-merge {})
         result (-> base
                    (merge (dissoc overlay :capabilities))
@@ -75,46 +75,46 @@
     (responses/success-response id result)))
 
 (defn- handle-tools-list
-  [context id params opts]
+  [manifest-data id params opts]
   (responses/success-response id
-                              {:tools (manifest/get-tools context
+                              {:tools (manifest/get-tools manifest-data
                                                           (assoc (manifest-opts opts)
                                                                  :includeUserDescription
                                                                  (true? (:includeUserDescription params))))}))
 
 (defn- handle-resources-list
-  [context id opts]
+  [manifest-data id opts]
   (responses/success-response id
-                              {:resources (public-resources context opts)}))
+                              {:resources (public-resources manifest-data opts)}))
 
 (defn- handle-resource-templates-list
-  [context id opts]
+  [manifest-data id opts]
   (let [templates (if-let [f (:resource-templates+ opts)]
-                    (f context opts)
+                    (f manifest-data opts)
                     [])]
     (if (thenable? templates)
       (.then (js/Promise.resolve templates) #(responses/success-response id {:resourceTemplates %}))
       (responses/success-response id {:resourceTemplates templates}))))
 
 (defn- handle-resources-read
-  [context id params opts]
+  [manifest-data id params opts]
   (let [uri (:uri params)
         hook (:read-resource+ opts)]
     (if hook
-      (resolve-read-result+ id context uri opts (hook context uri opts))
-      (success-for-read id (skill-read-result context uri opts) "Resource not found"))))
+      (resolve-read-result+ id manifest-data uri opts (hook manifest-data uri opts))
+      (success-for-read id (skill-read-result manifest-data uri opts) "Resource not found"))))
 
 (defn handle-manifest-request
   "Default MCP dispatch for manifest-backed methods. Always returns a
    JSON-RPC response or Promise for requests with `:id`; returns `nil`
    only for unhandled notifications (no `:id`)."
-  [context {:keys [method params id]} opts]
+  [manifest-data {:keys [method params id]} opts]
   (case method
-    "initialize" (handle-initialize context id opts)
-    "tools/list" (handle-tools-list context id params opts)
-    "resources/list" (handle-resources-list context id opts)
-    "resources/templates/list" (handle-resource-templates-list context id opts)
-    "resources/read" (handle-resources-read context id params opts)
+    "initialize" (handle-initialize manifest-data id opts)
+    "tools/list" (handle-tools-list manifest-data id params opts)
+    "resources/list" (handle-resources-list manifest-data id opts)
+    "resources/templates/list" (handle-resource-templates-list manifest-data id opts)
+    "resources/read" (handle-resources-read manifest-data id params opts)
     "ping" (responses/success-response id {})
     (if id
       (responses/error-response id -32601 (str "Method not found: " method))

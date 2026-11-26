@@ -69,11 +69,11 @@
     (let [ctx #js {:extension #js {:id "betterthantomorrow.calva-backseat-driver"}}]
       (is (= "user-betterthantomorrow.calva-backseat-driver-extension-joyride-ws-abc-g0"
              (sut/mcp-client-identifier {:vscode/extension-context ctx
-                                         :cursor/server-name "joyride-ws-abc-g0"})))))
+                                         :server/name "joyride-ws-abc-g0"})))))
 
   (testing "nil without extension context"
-    (is (nil? (sut/mcp-client-identifier {:cursor/server-name "joyride-ws-abc-g0"}))))
+    (is (nil? (sut/mcp-client-identifier {:server/name "joyride-ws-abc-g0"}))))
 
   (testing "nil without extension id"
     (is (nil? (sut/mcp-client-identifier {:vscode/extension-context #js {:extension #js {}}
-                                          :cursor/server-name "joyride-ws-abc-g0"})))))
+                                          :server/name "joyride-ws-abc-g0"})))))

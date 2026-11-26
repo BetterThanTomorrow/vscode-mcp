@@ -36,9 +36,8 @@ Inert until the consumer passes `:registry/enabled? true` in `create-config` (li
 ```clojure
 (lifecycle/create-config
   {:registry/enabled? true
-   :registry/custom-data+ (fn [_state]
-                            ;; Promise<map> merged onto the entry.
-                            (p/resolved {:sessions [...]}))
+   ;; A map merged onto the entry.
+   :registry/custom-data {:sessions [...]}
    ;; ...
    })
 ```
@@ -57,7 +56,7 @@ Filename: `<server-name>-<window-id>.json` (for example `calva-backseat-driver-w
 
 `windowId` is `vscode-mcp.cursor-config/instance-slug`: `ws-<hash>` of the editor `uriScheme` plus the `.code-workspace` file, or the first folder path if there is no workspace file. Empty windows use `win-<hash>` of `uriScheme` plus the Extension Host pid, so extensions in that window share a slug.
 
-`:cursor/server-name` is the consumer’s package.json `name` (Backseat Driver: `calva-backseat-driver`). That string is also Cursor’s register base, the ECA config key, the entry filename prefix, and the media-dir prefix. Cursor names are generation-suffixed (`<base>-<slug>-gN`). After a rename, an untracked old `backseat-driver-…-gN` entry can remain in workspaceState for the human to remove.
+`:server/name` is the consumer’s package.json `name` (Backseat Driver: `calva-backseat-driver`). That string is also Cursor’s register base, the ECA config key, the entry filename prefix, and the media-dir prefix. Cursor names are generation-suffixed (`<base>-<slug>-gN`). After a rename, an untracked old `backseat-driver-…-gN` entry can remain in workspaceState for the human to remove.
 
 ```json
 {
@@ -94,11 +93,11 @@ An entry is live when its `pid` is running **and** `updatedAt` is younger than 6
 On MCP start (`registry-writer/on-started!+`), when `:registry/enabled?`:
 
 1. Sweep `windows/` for JSON entries and leftover `.tmp` files whose `pid` is dead.
-2. Write this window's entry (envelope plus `:registry/custom-data+`).
-3. Heartbeat: rewrite the last payload with a fresh `updatedAt` every 30s. Heartbeat does not re-run `custom-data+`.
+2. Write this window's entry (envelope plus the config's `:registry/custom-data`).
+3. Heartbeat: rewrite the entry with a fresh `updatedAt` every 30s.
 4. Set `VSCODE_MCP_WINDOW_ID` to the window's `windowId` in the window's terminals, with the extension context's `environmentVariableCollection`. Every consumer in a window sets the same value. Stop leaves it, since a variable naming a window with no live entry finds no window.
 
-`stop!+` increments a generation (in-flight `custom-data+` cannot write a stale entry), clears timers, and unlinks this window's entry.
+`stop!+` forgets the entry and clears its timers, so nothing writes it again, and unlinks this window's entry. A consumer hands the library new custom data with `update-registry!+ config`, and the entry is written after the debounce time.
 
 Writes are atomic: temp file `<entry>.<pid>.<rand>.tmp` in the same directory, then `rename`. Windows `EPERM`/`EBUSY` unlinks the destination and retries.
 

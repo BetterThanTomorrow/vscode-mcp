@@ -16,12 +16,12 @@
     {:root root
      :windows-dir windows-dir
      :config {:registry/dir windows-dir
-              :cursor/server-name "calva-backseat-driver"}
+              :server/name "calva-backseat-driver"}
      :info {:server/instance-slug "ws-abc"}}))
 
 (defn- media-dir-path [{:keys [config info]}]
   (sut/media-dir config
-                 (:cursor/server-name config)
+                 (:server/name config)
                  (:server/instance-slug info)))
 
 (defn- write-file! [file-path mtime-ms]
@@ -98,7 +98,7 @@
     (try
       (is (= (path/join root "mcp-media" "calva-backseat-driver-ws-abc")
              (sut/media-dir config
-                            (:cursor/server-name config)
+                            (:server/name config)
                             (:server/instance-slug info))))
       (finally
         (cleanup! root)))))

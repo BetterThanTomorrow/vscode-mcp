@@ -5,6 +5,7 @@
    [cljs.test :refer [async deftest is testing]]
    [clojure.string :as string]
    [promesa.core :as p]
+   [vscode-mcp.manifest :as manifest]
    [vscode-mcp.requests :as sut]))
 
 (def ^:private skill-fixture-path "stubs/skills/test-skill/SKILL.md")
@@ -18,16 +19,22 @@
          (path/join (js/process.cwd) "../vscode-mcp/test")
          (path/join js/__dirname "../test")]))
 
-(defn- mock-skill-context [extension-path]
-  #js {:extensionPath extension-path
-       :extension #js {:packageJSON #js {:name "test-ext"
-                                         :version "1.2.3"
-                                         :contributes #js {:chatSkills #js [#js {:path "stubs/skills/test-skill/SKILL.md"}]}}}})
+(defn- mock-skill-context
+  "The manifest as data, of an extension at `extension-path` with the test skill."
+  [extension-path]
+  (manifest/manifest-data
+   #js {:extensionPath extension-path
+        :extension #js {:packageJSON #js {:name "test-ext"
+                                          :version "1.2.3"
+                                          :contributes #js {:chatSkills #js [#js {:path "stubs/skills/test-skill/SKILL.md"}]}}}}))
 
-(defn- mock-tool-context [tools]
-  #js {:extension #js {:packageJSON #js {:name "test-ext"
-                                         :version "0.1.0"
-                                         :contributes #js {:languageModelTools tools}}}})
+(defn- mock-tool-context
+  "The manifest as data, of an extension with `tools`."
+  [tools]
+  (manifest/manifest-data
+   #js {:extension #js {:packageJSON #js {:name "test-ext"
+                                          :version "0.1.0"
+                                          :contributes #js {:languageModelTools tools}}}}))
 
 (deftest initialize-test
   (let [ctx (mock-tool-context #js [#js {:name "t" :modelDescription "Tool"}])]

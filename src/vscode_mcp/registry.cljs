@@ -103,7 +103,7 @@
       (:lifecycle/wrapper-install-dir config)
       (assoc :wrapperPath (wrapper-install/installed-path
                            (:lifecycle/wrapper-install-dir config)
-                           (:cursor/script-relative-path config))))))
+                           (:wrapper/script-relative-path config))))))
 
 (defn build-envelope
   [{:keys [server-name window-id app-id workspace-root workspace-folder hostname pid updated-at mcp]}]
@@ -129,7 +129,7 @@
 (defn envelope-for
   [config server-info custom-data]
   (let [envelope (build-envelope
-                  {:server-name (:cursor/server-name config)
+                  {:server-name (:server/name config)
                    :window-id (:server/instance-slug server-info)
                    :app-id (:server/app-id server-info)
                    :workspace-root (:server/workspace-root server-info)

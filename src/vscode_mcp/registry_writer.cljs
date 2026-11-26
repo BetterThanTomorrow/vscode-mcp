@@ -1,17 +1,27 @@
 (ns vscode-mcp.registry-writer
-  "Process-local registry writer: debounce, heartbeat, generation fencing."
+  "The window's registry entry: written when the server starts, again shortly after its
+   custom data changed, and on a heartbeat. What an entry holds is data, kept by server,
+   and each write is synchronous. The timers are kept apart from the data. A timer that
+   fires after the server stopped finds no entry, and writes nothing."
   (:require
    [promesa.core :as p]
    [vscode-mcp.mcp-media :as mcp-media]
    [vscode-mcp.registry :as registry]
    [vscode-mcp.registry-listing :as listing]))
 
-(defonce !writers (atom {}))
-(defonce !generations (atom {}))
+(defonce ^{:private true
+           :doc "By server: the entry as data, its custom data, the file it is written to, and its window's slug."}
+  !entries
+  (atom {}))
+
+(defonce ^{:private true
+           :doc "By server: the timer of the next write after a change, and the heartbeat's."}
+  !timers
+  (atom {}))
 
 (defn- writer-key
   [config server-info]
-  [(:cursor/server-name config)
+  [(:server/name config)
    (:server/instance-slug server-info)])
 
 (defn- find-key
@@ -19,157 +29,107 @@
   (some (fn [k]
           (when (= server-name (first k))
             k))
-        (keys @!writers)))
-
-(defn- bump-generation!
-  [key]
-  (get (swap! !generations update key (fnil inc 0)) key))
-
-(defn- current-generation
-  [key]
-  (get @!generations key))
-
-(defn- current-entry
-  [key generation]
-  (when-let [entry (get @!writers key)]
-    (when (= generation (:generation entry))
-      entry)))
+        (keys @!entries)))
 
 (defn- clear-timers!
-  [entry]
-  (when-let [t (:debounce-timer entry)]
-    (js/clearTimeout t))
-  (when-let [t (:heartbeat-timer entry)]
-    (js/clearInterval t)))
+  [key]
+  (when-let [{:keys [debounce-timer heartbeat-timer]} (get @!timers key)]
+    (when debounce-timer
+      (js/clearTimeout debounce-timer))
+    (when heartbeat-timer
+      (js/clearInterval heartbeat-timer)))
+  (swap! !timers dissoc key))
 
 (defn clear-writers!
-  "Test helper: drop all writers and their timers."
+  "Test helper: drop all entries and their timers."
   []
-  (doseq [[_ entry] @!writers]
-    (clear-timers! entry))
-  (reset! !writers {})
-  (reset! !generations {})
+  (doseq [key (keys @!timers)]
+    (clear-timers! key))
+  (reset! !entries {})
   (mcp-media/clear-media-state!))
 
-(defn- log-warn
-  [config & args]
-  (when-let [on-log (:mcp/on-log config)]
-    (apply on-log :warn args)))
-
-(defn- write-if-current!
-  [key generation payload]
-  (when-let [entry (current-entry key generation)]
-    (let [config (:config entry)
-          info (:server-info entry)
-          dest (registry/entry-path config
-                                    (:cursor/server-name config)
-                                    (:server/instance-slug info))]
-      (registry/atomic-write! dest payload)
-      (when (current-entry key generation)
-        (swap! !writers assoc-in [key :last-payload] payload)))))
-
-(defn- custom-data+
-  "Promise of what the entry holds beside the library's own fields: the map in
-   `:registry/custom-data`, or what the function in `:registry/custom-data+` resolves to."
+(defn- custom-data
+  "What the entry holds beside the library's own fields: the map in `:registry/custom-data`."
   [config]
-  (if-let [f (if (map? (:registry/custom-data config))
-               (constantly (:registry/custom-data config))
-               (:registry/custom-data+ config))]
-    (-> (p/let [data (f {})]
-          (if (map? data) data {}))
-        (p/catch (fn [err]
-                   (log-warn config "[MCP] registry custom-data failed:" err)
-                   {})))
-    (p/resolved {})))
+  (let [data (:registry/custom-data config)]
+    (if (map? data)
+      data
+      {})))
 
-(defn- refresh-and-write!+
+(defn- write-entry!
+  "Writes the entry of `key` with the time of the write, when the server has an entry."
   [key]
-  (let [{:keys [config server-info generation]} (get @!writers key)]
-    (if-not config
-      (p/resolved nil)
-      (p/let [custom (custom-data+ config)]
-        (when (= generation (current-generation key))
-          (write-if-current! key generation
-                             (registry/envelope-for config server-info custom)))))))
-
-(defn- heartbeat-tick!
-  [key]
-  (let [{:keys [last-payload generation]} (get @!writers key)]
-    (when last-payload
-      (write-if-current! key generation
-                         (assoc last-payload :updatedAt (registry/now-iso))))))
+  (when-let [{:registry/keys [envelope custom-data path]} (get @!entries key)]
+    (registry/atomic-write! path (-> envelope
+                                     (registry/merge-custom-data custom-data)
+                                     (assoc :updatedAt (registry/now-iso))))))
 
 (defn- start-heartbeat!
-  [key]
-  (let [config (:config (get @!writers key))
-        ms (:registry/heartbeat-ms config registry/default-heartbeat-ms)
-        timer (js/setInterval #(heartbeat-tick! key) ms)]
-    (swap! !writers assoc-in [key :heartbeat-timer] timer)))
+  [key config]
+  (let [ms (:registry/heartbeat-ms config registry/default-heartbeat-ms)]
+    (swap! !timers assoc-in [key :heartbeat-timer]
+           (js/setInterval #(write-entry! key) ms))))
 
-(defn- schedule-refresh!
-  [key]
-  (let [entry (get @!writers key)
-        config (:config entry)
-        ms (:registry/debounce-ms config registry/default-debounce-ms)]
-    (when-let [t (:debounce-timer entry)]
-      (js/clearTimeout t))
-    (let [timer (js/setTimeout #(refresh-and-write!+ key) ms)]
-      (swap! !writers assoc-in [key :debounce-timer] timer))))
+(defn- schedule-write!
+  "Writes the entry of `key` after the debounce time. A write that still waits is
+   dropped for this one."
+  [key config]
+  (let [ms (:registry/debounce-ms config registry/default-debounce-ms)]
+    (when-let [timer (get-in @!timers [key :debounce-timer])]
+      (js/clearTimeout timer))
+    (swap! !timers assoc-in [key :debounce-timer]
+           (js/setTimeout #(write-entry! key) ms))))
 
 (defn on-started!+
-  "Sweeps dead entries, starts the heartbeat, and writes the initial entry."
+  "Sweeps dead entries, starts the heartbeat, and writes the entry with the custom data
+   in `config`."
   [config server-info]
   (if-not (and (:registry/enabled? config)
-               (:cursor/server-name config)
+               (:server/name config)
                (:server/instance-slug server-info))
     (p/resolved nil)
-    (let [key (writer-key config server-info)
-          existing (get @!writers key)
-          generation (bump-generation! key)]
-      (when existing
-        (clear-timers! existing))
+    (let [key (writer-key config server-info)]
+      (clear-timers! key)
       (registry/sweep-dead-pid-files! (registry/registry-dir config))
-      (swap! !writers assoc key {:generation generation
-                                 :config config
-                                 :server-info server-info
-                                 :last-payload nil
-                                 :debounce-timer nil
-                                 :heartbeat-timer nil})
-      (start-heartbeat! key)
+      (swap! !entries assoc key {:registry/envelope (registry/envelope-for config server-info nil)
+                                 :registry/custom-data (custom-data config)
+                                 :registry/path (registry/entry-path config
+                                                                     (:server/name config)
+                                                                     (:server/instance-slug server-info))
+                                 :server/instance-slug (:server/instance-slug server-info)})
+      (start-heartbeat! key config)
       (registry/set-window-id-env! (:vscode/extension-context config)
                                    (:server/instance-slug server-info))
       (listing/maybe-install!+ config)
       (mcp-media/on-started! {:config config :server-info server-info})
-      (refresh-and-write!+ key))))
+      (write-entry! key)
+      (p/resolved nil))))
 
 (defn on-stopping!
-  "Synchronously fences in-flight writes and clears timers."
+  "Forgets the server's entry and clears its timers, so nothing writes it again."
   [config]
-  (when-let [key (find-key (:cursor/server-name config))]
-    (when-let [entry (get @!writers key)]
-      (mcp-media/on-stopping! {:config config :server-info (:server-info entry)})
-      (clear-timers! entry)
-      (bump-generation! key)
-      (swap! !writers dissoc key))))
+  (when-let [key (find-key (:server/name config))]
+    (mcp-media/on-stopping! {:config config
+                             :server-info (select-keys (get @!entries key) [:server/instance-slug])})
+    (clear-timers! key)
+    (swap! !entries dissoc key)))
 
 (defn on-stopped!
   "Unlinks the entry for `server-info`'s window."
   [config server-info]
-  (when (and (:cursor/server-name config)
+  (when (and (:server/name config)
              (:server/instance-slug server-info))
     (registry/unlink-silent!
      (registry/entry-path config
-                          (:cursor/server-name config)
+                          (:server/name config)
                           (:server/instance-slug server-info)))))
 
 (defn update-registry!+
-  "Debounced refresh of `:registry/custom-data+` using live server-info."
+  "Takes the custom data in `config` for the running server's entry, and writes the
+   entry after the debounce time."
   [config]
-  (if-not (:registry/enabled? config)
-    (p/resolved nil)
-    (if-let [key (find-key (:cursor/server-name config))]
-      (do
-        (swap! !writers assoc-in [key :config] config)
-        (schedule-refresh! key)
-        (p/resolved nil))
-      (p/resolved nil))))
+  (when (:registry/enabled? config)
+    (when-let [key (find-key (:server/name config))]
+      (swap! !entries assoc-in [key :registry/custom-data] (custom-data config))
+      (schedule-write! key config)))
+  (p/resolved nil))

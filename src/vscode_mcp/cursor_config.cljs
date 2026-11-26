@@ -24,7 +24,7 @@
         (str "win-" (short-hash [app pid]))))))
 
 (defn mcp-client-identifier
-  [{:vscode/keys [^js extension-context] :cursor/keys [server-name]}]
+  [{:vscode/keys [^js extension-context] server-name :server/name}]
   (when extension-context
     (let [extension-id (some-> extension-context .-extension .-id)]
       (when (seq extension-id)
@@ -38,12 +38,12 @@
   (str base-name "-" instance-slug "-g" generation))
 
 (defn wrapper-script-path
-  [{:vscode/keys [^js extension-context] :cursor/keys [script-relative-path]}]
+  [{:vscode/keys [^js extension-context] :wrapper/keys [script-relative-path]}]
   (when extension-context
     (path/join (.-extensionPath extension-context) script-relative-path)))
 
 (defn build-stdio-server-config
-  [{:cursor/keys [server-name wrapper-path] :server/keys [port-file-path host]}]
+  [{:cursor/keys [wrapper-path] :server/keys [port-file-path host] server-name :server/name}]
   (cond
     (not (seq (str wrapper-path)))
     {:ok false :reason :missing-wrapper-path}
@@ -59,13 +59,14 @@
                        :env {}}}}))
 
 (defn build-cursor-mcp-registration-config
-  [{:cursor/keys [server-name script-relative-path]
+  [{server-name :server/name
+    :wrapper/keys [script-relative-path]
     :vscode/keys [extension-context]
     :server/keys [port-file-uri host]}]
   (let [port-file-fs-path (some-> port-file-uri (unchecked-get "fsPath"))]
     (build-stdio-server-config
-     {:cursor/server-name server-name
+     {:server/name server-name
       :cursor/wrapper-path (wrapper-script-path {:vscode/extension-context extension-context
-                                                  :cursor/script-relative-path script-relative-path})
+                                                  :wrapper/script-relative-path script-relative-path})
       :server/port-file-path port-file-fs-path
       :server/host host})))

@@ -14,14 +14,12 @@
    [vscode-mcp.server-readiness :as server-readiness]
    [vscode-mcp.wrapper-install :as wrapper-install]))
 
-(def init-state state/init-state)
-(def running? state/running?)
-(def server-info state/server-info)
-(def cursor-registered? state/cursor-registered?)
+(def ^:private init-state state/init-state)
+(def ^:private running? state/running?)
+(def ^:private server-info state/server-info)
 
-;; The server's state, which the library keeps for a consumer that hands the lifecycle
-;; functions its config alone. The lifecycle state holds the server and its sockets,
-;; so it is kept apart from the server's state, which is plain data.
+;; The server's state, which the library keeps. The lifecycle state holds the server and
+;; its sockets, so it is kept apart from the server's state, which is plain data.
 
 (defonce ^:private !lifecycle-states (atom {}))
 
@@ -57,8 +55,8 @@
   (change-server-state! config (state/server-facts lifecycle-state)))
 
 (defn- reporting
-  "Returns `config` with the lifecycle callbacks that keep the server's state, in
-   place of a consumer's own."
+  "Returns `config` with the callbacks that the flows below call as the server changes,
+   which keep the server's state."
   [config]
   (assoc config
          :lifecycle/on-starting-changed
@@ -89,7 +87,7 @@
 (defn- resolve-wrapper-path
   [config]
   (wrapper-install/installed-path (:lifecycle/wrapper-install-dir config)
-                                  (:cursor/script-relative-path config)))
+                                  (:wrapper/script-relative-path config)))
 
 (def create-config state/create-config)
 
@@ -120,16 +118,17 @@
 
 (defn- do-register!+
   [config state started-server-info]
-  (let [{:cursor/keys [server-name script-relative-path]
+  (let [{server-name :server/name
+         :wrapper/keys [script-relative-path]
          :vscode/keys [extension-context]
          :server/keys [host]
          :lifecycle/keys [on-cursor-registered on-cursor-registration-failed]} config
         instance-slug (:server/instance-slug started-server-info)
         intent (state/registration-intent state server-name instance-slug)
         {:register/keys [unregister-name register-name generation]} intent
-        register-opts {:cursor/server-name register-name
+        register-opts {:server/name register-name
                        :vscode/extension-context extension-context
-                       :cursor/script-relative-path script-relative-path
+                       :wrapper/script-relative-path script-relative-path
                        :server/port-file-uri (:server/port-file-uri started-server-info)
                        :server/host host}]
     (p/let [_ (when unregister-name (cursor/unregister-by-name!+ unregister-name))
@@ -155,8 +154,8 @@
     (if-not allowed?
       (p/resolved nil)
       (p/let [result (eca/register!+
-                      {:cursor/server-name (:cursor/server-name config)
-                       :cursor/script-relative-path (:cursor/script-relative-path config)
+                      {:server/name (:server/name config)
+                       :wrapper/script-relative-path (:wrapper/script-relative-path config)
                        :cursor/wrapper-path (resolve-wrapper-path config)
                        :vscode/extension-context (:vscode/extension-context config)
                        :registry/enabled? (:registry/enabled? config)
@@ -201,17 +200,16 @@
       (wrapper-install/ensure-installed! config)
       (let [{:vscode/keys [extension-context]
              :mcp/keys [on-request on-log on-error]
-             :cursor/keys [server-name]
              :server/keys [host]
-             :lifecycle/keys [request-port on-starting-changed]} config
+             :lifecycle/keys [on-starting-changed]} config
+            server-name (:server/name config)
             instance-slug (cursor/current-instance-slug extension-context)
             strategy-opts {:lifecycle/cursor-mode? (cursor-mode? config)
                            :lifecycle/instance-slug instance-slug}
             port-file-uri (primary-port-file-uri config server-name instance-slug)
-            request-port-value (cond
-                                 request-port (request-port extension-context strategy-opts)
-                                 (:lifecycle/cursor-mode? strategy-opts) 0
-                                 :else (:server/request-port config))
+            request-port-value (if (:lifecycle/cursor-mode? strategy-opts)
+                                 0
+                                 (:server/request-port config))
             register-allowed? (policy/should-register-on-start?
                                {:mcp/auto-register? (:mcp/auto-register? config)
                                 :mcp/cursor-available? (cursor-mode? config)
@@ -252,10 +250,10 @@
                        state)))))))
 
 (defn- sweep-stale-registrations!+
-  [{:cursor/keys [server-name] :vscode/keys [extension-context]}]
+  [{:vscode/keys [extension-context] server-name :server/name}]
   (if (cursor/cursor-mcp-available?)
     (cursor/cleanup-tracked-registrations!+
-     {:cursor/server-name server-name
+     {:server/name server-name
       :vscode/extension-context extension-context}
      nil)
     (p/resolved nil)))
@@ -289,44 +287,17 @@
 
 (defn maybe-start!+
   "Starts `config`'s server when its settings and what is installed call for it, without
-   a message. Returns a promise of the server's state. With a lifecycle `state` and
-   `silent?`, it returns a promise of the next lifecycle state, for a consumer that
-   keeps that itself."
-  ([config]
-   (run-flow!+ config #(maybe-start-flow!+ %1 %2 true)))
-  ([config state silent?]
-   (maybe-start-flow!+ config state silent?)))
+   a message. Returns a promise of the server's state."
+  [config]
+  (run-flow!+ config #(maybe-start-flow!+ %1 %2 true)))
 
 (defn start!+
   "Starts `config`'s server, and shows how to connect to it. Returns a promise of the
-   server's state, with `:server/error` when the start failed. With a lifecycle `state`
-   and `silent?`, it returns a promise of the next lifecycle state, for a consumer that
-   keeps that itself."
-  ([config]
-   (run-flow!+ config (fn [config state]
-                        (registry/set-extension-host-env!)
-                        (start-flow!+ config state false))))
-  ([config state silent?]
-   (registry/set-extension-host-env!)
-   (start-flow!+ config state silent?)))
-
-(defn- register-flow!+
-  "Ensure the socket server is running, then register with Cursor using the
-   uniform generation-suffixed name path."
-  [config state]
-  (registry/set-extension-host-env!)
-  (if-not (cursor/cursor-mcp-available?)
-    (p/resolved {:ok false :reason :cursor-api-unavailable :state state})
-    (p/let [state' (if (running? state)
-                       (p/resolved state)
-                       (start-flow!+ config state true {:lifecycle/skip-register? true}))
-            info (server-info state')]
-      (if-not info
-        (p/resolved {:ok false :reason :registration-failed :state state'})
-        (p/let [state'' (do-register!+ config state' info)]
-          {:ok (cursor-registered? state'')
-           :state state''
-           :reason (when-not (cursor-registered? state'') :registration-failed)})))))
+   server's state, with `:server/error` when the start failed."
+  [config]
+  (run-flow!+ config (fn [config state]
+                       (registry/set-extension-host-env!)
+                       (start-flow!+ config state false))))
 
 (defn- registration-failed!
   "Puts a failed Cursor registration in the state of `config`'s server, and returns the state."
@@ -358,12 +329,9 @@
 (defn register-with-cursor!+
   "Registers `config`'s server with Cursor, starting it when it doesn't run. Returns a
    promise of the server's state, with `:lifecycle/registration-error` when it didn't
-   register. With a lifecycle `state`, it returns a promise of `{:ok … :reason … :state …}`,
-   for a consumer that keeps the lifecycle state itself."
-  ([config]
-   (register-kept!+ (reporting config)))
-  ([config state]
-   (register-flow!+ config state)))
+   register."
+  [config]
+  (register-kept!+ (reporting config)))
 
 (defn- stop-flow!+
   [config state stop-options]
@@ -403,11 +371,8 @@
 
 (defn stop!+
   "Stops `config`'s server, with a message unless `stop-options` has `:lifecycle/silent?`.
-   Returns a promise of the server's state. With a lifecycle `state`, it returns a
-   promise of the next lifecycle state, for a consumer that keeps that itself."
+   Returns a promise of the server's state."
   ([config]
    (stop!+ config nil))
   ([config stop-options]
-   (run-flow!+ config #(stop-flow!+ %1 %2 stop-options)))
-  ([config state stop-options]
-   (stop-flow!+ config state stop-options)))
+   (run-flow!+ config #(stop-flow!+ %1 %2 stop-options))))

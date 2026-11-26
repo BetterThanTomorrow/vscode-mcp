@@ -25,26 +25,18 @@
   (some? (:lifecycle/registered-name state)))
 
 (defn create-config
-  "Returns the config for `opts`, with the defaults for what `opts` leaves out. The
-   server's name and the wrapper's script are `:server/name` and
-   `:wrapper/script-relative-path`. `:cursor/server-name` and
-   `:cursor/script-relative-path` name the same two, and each pair is filled in from
-   the other."
+  "Returns the config for `opts`, with the defaults for what `opts` leaves out.
+   `:server/name` names the server, and `:wrapper/script-relative-path` is the stdio
+   wrapper's script in the extension."
   [opts]
-  (let [server-name (or (:server/name opts) (:cursor/server-name opts))
-        script-relative-path (or (:wrapper/script-relative-path opts) (:cursor/script-relative-path opts))]
-    (cond-> (merge {:mcp/auto-start? false
-                    :mcp/auto-register? true
-                    :mcp/auto-register-eca? false
-                    :server/host stdio-config/default-host
-                    :registry/enabled? false
-                    :registry/heartbeat-ms 30000
-                    :registry/debounce-ms 1000}
-                   opts)
-      server-name (assoc :server/name server-name
-                         :cursor/server-name server-name)
-      script-relative-path (assoc :wrapper/script-relative-path script-relative-path
-                                  :cursor/script-relative-path script-relative-path))))
+  (merge {:mcp/auto-start? false
+          :mcp/auto-register? true
+          :mcp/auto-register-eca? false
+          :server/host stdio-config/default-host
+          :registry/enabled? false
+          :registry/heartbeat-ms 30000
+          :registry/debounce-ms 1000}
+         opts))
 
 (def stopped-server-state
   "The state of a server that doesn't run, as the library reports a server's state: plain data."

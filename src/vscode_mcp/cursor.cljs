@@ -86,9 +86,9 @@
     (p/resolved false)))
 
 (defn- reload-mcp-client!+
-  [{:vscode/keys [extension-context] :cursor/keys [server-name]}]
+  [{:vscode/keys [extension-context] server-name :server/name}]
   (let [identifier (config/mcp-client-identifier {:vscode/extension-context extension-context
-                                                    :cursor/server-name server-name})]
+                                                    :server/name server-name})]
     (cond
       (not identifier)
       (p/resolved {:ok false :reason :missing-extension-context})
@@ -123,5 +123,5 @@
         (if-not (:ok register-result)
           register-result
           (p/let [reload-result (reload-mcp-client!+ options)
-                  _ (cleanup-tracked-registrations!+ options (:cursor/server-name options))]
-            {:ok true :name (:cursor/server-name options) :reload reload-result}))))))
+                  _ (cleanup-tracked-registrations!+ options (:server/name options))]
+            {:ok true :name (:server/name options) :reload reload-result}))))))

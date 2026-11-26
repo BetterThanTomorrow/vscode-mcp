@@ -30,12 +30,18 @@
          (path/join (js/process.cwd) "../vscode-mcp/test")
          (path/join js/__dirname "../test")]))
 
-(defn- mock-skill-context [extension-path]
-  #js {:extensionPath extension-path
-       :extension #js {:packageJSON #js {:contributes #js {:chatSkills #js [#js {:path "stubs/skills/test-skill/SKILL.md"}]}}}})
+(defn- mock-skill-context
+  "The manifest as data, of an extension at `extension-path` with the test skill."
+  [extension-path]
+  (sut/manifest-data
+   #js {:extensionPath extension-path
+        :extension #js {:packageJSON #js {:contributes #js {:chatSkills #js [#js {:path "stubs/skills/test-skill/SKILL.md"}]}}}}))
 
-(defn- mock-context [tools]
-  #js {:extension #js {:packageJSON #js {:contributes #js {:languageModelTools tools}}}})
+(defn- mock-context
+  "The manifest as data, of an extension with `tools`."
+  [tools]
+  (sut/manifest-data
+   #js {:extension #js {:packageJSON #js {:contributes #js {:languageModelTools tools}}}}))
 
 (deftest tool-call-allowed?-test
   (testing "no when clause"
@@ -253,16 +259,15 @@
       (is (= extension-path (:manifest/extension-path data)))
       (is (= data (reader/read-string (pr-str data)))
           "It prints and reads back as itself, so it holds no JavaScript objects"))
-    (testing "every function gives the same for the data as for the extension context"
-      (is (= (sut/get-tools context) (sut/get-tools data)))
-      (is (= (sut/get-tools context settings) (sut/get-tools data settings)))
-      (is (= (sut/get-tools context {:includeUserDescription true}) (sut/get-tools data {:includeUserDescription true})))
+    (testing "the functions take the data"
+      (is (= ["always"] (mapv :name (sut/get-tools data settings))))
+      (is (= {:name "always"
+              :description "Always there"
+              :userDescription "For people"
+              :inputSchema {:type "object" :properties {:code {:type "string"}} :required ["code"]}}
+             (first (sut/get-tools data {:includeUserDescription true}))))
       (is (= [:allowed :disabled :unknown]
-             (mapv #(sut/tool-call-allowed? context % settings) ["always" "sometimes" "nope"])
              (mapv #(sut/tool-call-allowed? data % settings) ["always" "sometimes" "nope"])))
-      (is (= (sut/get-resources context) (sut/get-resources data)))
       (is (seq (sut/get-resources data)))
-      (is (= (sut/read-resource context sut/skills-index-uri) (sut/read-resource data sut/skills-index-uri)))
-      (is (= (sut/build-initialize-result context) (sut/build-initialize-result data)))
       (is (= {:name "an-extension" :version "1.2.3"}
              (:serverInfo (sut/build-initialize-result data)))))))
