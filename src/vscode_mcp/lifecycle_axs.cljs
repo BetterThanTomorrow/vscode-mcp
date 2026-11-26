@@ -45,21 +45,20 @@
                                               :lifecycle/skip-register? skip-register?})))
 
 (defn- start
-  "Starts the server, unless it runs. A server that Cursor gets a registration of
-   listens on a port the system picks."
+  "Starts the server, unless it runs or is starting. A server that Cursor gets a
+   registration of listens on a port the system picks."
   [state _uf-data {server-name :server/name
                    :server/keys [host request-port instance-slug]
                    :mcp/keys [auto-register? cursor-available?]
                    :as facts}]
-  (if (:server/running? (entry state server-name))
+  (if (some (entry state server-name) [:server/running? :server/starting?])
     {:uf/fxs [(returning state server-name)]
      :uf/dxs (:lifecycle/then facts)}
     {:uf/db (update state server-name #(assoc (or % stopped-entry)
                                               :server/starting? true
                                               :server/error nil
                                               :lifecycle/registration-error nil))
-     :uf/fxs [[:lifecycle/fx.install-wrapper server-name]
-              [:uf/await :lifecycle/fx.start-server {:server/name server-name
+     :uf/fxs [[:uf/await :lifecycle/fx.start-server {:server/name server-name
                                                      :server/host host
                                                      :server/instance-slug instance-slug
                                                      :server/request-port (if (and cursor-available?
@@ -175,10 +174,12 @@
                [[:lifecycle/ax.start (assoc facts :lifecycle/silent? true)]])}))
 
 (defn- stop
-  "Stops the server, when it runs, and takes its registration from Cursor."
+  "Stops the server, when it runs, and takes its registration from Cursor. A server
+   that is still starting is left to start."
   [state _uf-data {server-name :server/name :as facts}]
-  (let [{:server/keys [running?] :lifecycle/keys [registered-name]} (entry state server-name)]
-    (if-not running?
+  (let [{:server/keys [running? starting?] :lifecycle/keys [registered-name]} (entry state server-name)]
+    (if (or (not running?)
+            starting?)
       {:uf/fxs [(returning state server-name)]}
       {:uf/db (update state server-name assoc :server/stopping? true)
        :uf/fxs [[:lifecycle/fx.registry-stopping server-name]
@@ -217,9 +218,9 @@
     {:uf/fxs [[:uf/await :lifecycle/fx.register-with-cursor server-name intent]]
      :uf/dxs [[:lifecycle/ax.registered-on-request (merge facts intent) :uf/prev-result]]}))
 
-(defn- failed-registration
-  "Returns the result for a registration on request that failed with `failure`."
-  [state server-name failure]
+(defn- registration-failed
+  "A registration on request failed with `failure`, before Cursor was asked."
+  [state _uf-data {server-name :server/name} failure]
   (let [state (update state server-name #(assoc (or % stopped-entry)
                                                 :lifecycle/registration-error
                                                 (lifecycle/registration-error failure)))]
@@ -228,13 +229,16 @@
 
 (defn- register-with-cursor
   "Registers the server with Cursor on request, starting it first when it doesn't run,
-   silently and without the registration a start makes."
+   silently and without the registration a start makes. The earlier registration's
+   error is cleared first, as a change of its own, so a registration that fails as the
+   one before it did is reported again."
   [state _uf-data {server-name :server/name :mcp/keys [cursor-available?] :as facts}]
   (let [state (update state server-name #(assoc (or % stopped-entry)
                                                 :lifecycle/registration-error nil))]
     (cond
       (not cursor-available?)
-      (failed-registration state server-name {:reason :cursor-api-unavailable})
+      {:uf/db state
+       :uf/dxs [[:lifecycle/ax.registration-failed facts {:reason :cursor-api-unavailable}]]}
 
       (:server/running? (entry state server-name))
       (assoc (register state facts) :uf/db state)
@@ -251,7 +255,7 @@
   [state _uf-data {server-name :server/name :as facts}]
   (if (:server/running? (entry state server-name))
     (register state facts)
-    (failed-registration state server-name {:reason :registration-failed})))
+    {:uf/dxs [[:lifecycle/ax.registration-failed facts {:reason :registration-failed}]]}))
 
 (defn- registered-on-request
   "Takes the result of a registration on request, whose intent the `facts` have."
@@ -271,4 +275,5 @@
    :lifecycle/ax.stopped #'stopped
    :lifecycle/ax.register-with-cursor #'register-with-cursor
    :lifecycle/ax.register-started-server #'register-started-server
+   :lifecycle/ax.registration-failed #'registration-failed
    :lifecycle/ax.registered-on-request #'registered-on-request})

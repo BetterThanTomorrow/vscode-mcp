@@ -61,13 +61,12 @@
     (let [result (handle {} [:lifecycle/ax.start facts])]
       (is (= (assoc stopped :server/starting? true) (reported result))
           "The server is starting")
-      (is (= [[:lifecycle/fx.install-wrapper "my-server"]
-              [:uf/await :lifecycle/fx.start-server {:server/name "my-server"
+      (is (= [[:uf/await :lifecycle/fx.start-server {:server/name "my-server"
                                                      :server/host "127.0.0.1"
                                                      :server/instance-slug "ws-abc"
                                                      :server/request-port 1664}]]
              (:uf/fxs result))
-          "The wrapper is installed, and the server starts on the port the settings ask for")
+          "The server starts on the port the settings ask for")
       (is (= [[:lifecycle/ax.server-started facts :uf/prev-result]]
              (:uf/dxs result)))))
   (testing "a start after one that failed"
@@ -79,16 +78,25 @@
         "has neither the earlier start's error nor the earlier registration's"))
   (testing "in Cursor, with registration at start"
     (is (= 0 (-> (handle {} [:lifecycle/ax.start in-cursor])
-                 :uf/fxs second (nth 2) :server/request-port))
+                 :uf/fxs first (nth 2) :server/request-port))
         "The server listens on a port the system picks")
     (is (= 1664 (-> (handle {} [:lifecycle/ax.start (assoc in-cursor :mcp/auto-register? false)])
-                    :uf/fxs second (nth 2) :server/request-port))
+                    :uf/fxs first (nth 2) :server/request-port))
         "With auto-registration off it listens on the port the settings ask for"))
   (testing "a server that runs"
-    (let [result (handle (state-of running) [:lifecycle/ax.start facts])]
+    (let [then [[:lifecycle/ax.register-started-server facts]]
+          result (handle (state-of running) [:lifecycle/ax.start (assoc facts :lifecycle/then then)])]
       (is (= [[:uf/await :lifecycle/fx.return running]] (:uf/fxs result))
           "The start resolves to the server's state, and nothing starts")
-      (is (= (state-of running) (:uf/db result))))))
+      (is (= (state-of running) (:uf/db result)))
+      (is (= then (:uf/dxs result))
+          "What was to follow the start follows")))
+  (testing "a server that is starting"
+    (let [starting (assoc stopped :server/starting? true)
+          result (handle (state-of starting) [:lifecycle/ax.start facts])]
+      (is (= [[:uf/await :lifecycle/fx.return starting]] (:uf/fxs result))
+          "A second start starts no second server")
+      (is (= (state-of starting) (:uf/db result))))))
 
 (deftest server-started
   (testing "a server that listens"
@@ -251,7 +259,13 @@
   (testing "a server that is registered with Cursor"
     (is (= [:uf/await :lifecycle/fx.unregister-from-cursor "my-server" "my-server-ws-abc-g0"]
            (last (:uf/fxs (handle (state-of registered) [:lifecycle/ax.stop facts]))))
-        "is taken from Cursor after it stopped")))
+        "is taken from Cursor after it stopped"))
+  (testing "a server that listens, and whose start isn't finished"
+    (let [starting (assoc running :server/starting? true)
+          result (handle (state-of starting) [:lifecycle/ax.stop facts])]
+      (is (= [[:uf/await :lifecycle/fx.return starting]] (:uf/fxs result))
+          "is left to start: the stop resolves to its state, and stops nothing")
+      (is (empty? (:uf/dxs result))))))
 
 (deftest stopped-server
   (testing "a stop of a server that wasn't registered"
@@ -287,12 +301,14 @@
 
 (deftest register-with-cursor
   (testing "in an editor without Cursor's registration API"
-    (let [result (handle (state-of running) [:lifecycle/ax.register-with-cursor facts])
-          failed (assoc running :lifecycle/registration-error {:reason :cursor-api-unavailable})]
-      (is (= failed (reported result)))
-      (is (= [[:uf/await :lifecycle/fx.return failed]] (:uf/fxs result)))
-      (is (empty? (:uf/dxs result))
-          "Nothing starts")))
+    (let [earlier (assoc running :lifecycle/registration-error {:reason :cursor-api-unavailable})
+          result (handle (state-of earlier) [:lifecycle/ax.register-with-cursor facts])]
+      (is (= running (reported result))
+          "The earlier registration's error is cleared, as a change of its own")
+      (is (empty? (:uf/fxs result))
+          "Nothing starts, and Cursor isn't asked")
+      (is (= [[:lifecycle/ax.registration-failed facts {:reason :cursor-api-unavailable}]] (:uf/dxs result))
+          "The failure follows, so one that is the same as the one before is reported again")))
   (testing "a running server"
     (let [result (handle (state-of (assoc running :lifecycle/registration-error {:reason :registration-failed}))
                          [:lifecycle/ax.register-with-cursor in-cursor])]
@@ -307,6 +323,11 @@
            (-> (handle (state-of registered) [:lifecycle/ax.register-with-cursor in-cursor])
                :uf/fxs first (nth 3)))
         "gets the next generation's name, and the current name is taken from Cursor"))
+  (testing "a window whose slug the facts give as another"
+    (is (= "my-server-ws-abc-g0"
+           (-> (handle (state-of running) [:lifecycle/ax.register-with-cursor (assoc in-cursor :server/instance-slug "ws-other")])
+               :uf/fxs first (nth 3) :register/register-name))
+        "The name has the slug the server started with"))
   (testing "no server runs"
     (let [result (handle {} [:lifecycle/ax.register-with-cursor in-cursor])]
       (is (empty? (:uf/fxs result)))
@@ -322,19 +343,34 @@
     (is (= [[:uf/await :lifecycle/fx.register-with-cursor "my-server" intent]]
            (:uf/fxs (handle (state-of running) [:lifecycle/ax.register-started-server in-cursor])))))
   (testing "the start failed"
-    (let [state (state-of (assoc stopped :server/error "listen EADDRINUSE"))
-          failed (assoc stopped
-                        :server/error "listen EADDRINUSE"
-                        :lifecycle/registration-error {:reason :registration-failed})
-          result (handle state [:lifecycle/ax.register-started-server in-cursor])]
-      (is (= failed (reported result)))
-      (is (= [[:uf/await :lifecycle/fx.return failed]] (:uf/fxs result))))))
+    (is (= [[:lifecycle/ax.registration-failed in-cursor {:reason :registration-failed}]]
+           (:uf/dxs (handle (state-of (assoc stopped :server/error "listen EADDRINUSE"))
+                            [:lifecycle/ax.register-started-server in-cursor]))))))
+
+(deftest registration-failed
+  (let [state (state-of (assoc stopped :server/error "listen EADDRINUSE"))
+        failed (assoc stopped
+                      :server/error "listen EADDRINUSE"
+                      :lifecycle/registration-error {:reason :registration-failed})
+        result (handle state [:lifecycle/ax.registration-failed in-cursor {:reason :registration-failed}])]
+    (is (= failed (reported result))
+        "The state has the registration's error")
+    (is (= [[:uf/await :lifecycle/fx.return failed]] (:uf/fxs result))
+        "and the registration resolves to it")))
 
 (deftest registered-on-request
   (testing "a registration that Cursor took"
     (let [result (handle (state-of running) [:lifecycle/ax.registered-on-request (merge in-cursor intent) {:ok true}])]
       (is (= registered (reported result)))
       (is (= [[:uf/await :lifecycle/fx.return registered]] (:uf/fxs result)))))
+  (testing "a registration of a server that was registered already"
+    (let [next-intent {:register/unregister-name "my-server-ws-abc-g0"
+                       :register/generation 1
+                       :register/register-name "my-server-ws-abc-g1"}
+          result (handle (state-of registered) [:lifecycle/ax.registered-on-request (merge in-cursor next-intent) {:ok true}])]
+      (is (= "my-server-ws-abc-g1" (:lifecycle/registered-name (reported result))))
+      (is (= 1 (get-in result [:uf/db "my-server" :lifecycle/generation]))
+          "The generation of the new name is kept, so a later start gets the one after it")))
   (testing "a registration that failed"
     (is (= (assoc running :lifecycle/registration-error {:reason :registration-failed})
            (reported (handle (state-of running)
@@ -359,7 +395,9 @@
                     (handle (state-of running) [:lifecycle/ax.registered-at-start facts nil])
                     (handle (state-of running) [:lifecycle/ax.stop facts])
                     (handle (state-of running) [:lifecycle/ax.register-with-cursor in-cursor])
-                    (handle {} [:lifecycle/ax.register-with-cursor in-cursor])]
+                    (handle {} [:lifecycle/ax.register-with-cursor in-cursor])
+                    (handle {} [:lifecycle/ax.register-with-cursor facts])
+                    (handle {} [:lifecycle/ax.register-started-server in-cursor])]
                    (mapcat :uf/dxs)
                    (map first)
                    set)]

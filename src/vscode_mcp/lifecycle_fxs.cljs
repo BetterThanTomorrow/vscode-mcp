@@ -51,17 +51,14 @@
   (when-let [on-server-changed (:mcp/on-server-changed (config-of server-name))]
     (on-server-changed server-state)))
 
-(defn- install-wrapper
-  [_dispatch! server-name]
-  (wrapper-install/ensure-installed! (config-of server-name)))
-
 (defn- ^:async start-server
-  "Starts the server. Resolves to what it listens on, or to `{:error/message …}` for a
-   start that failed, which leaves no server."
+  "Installs the wrapper and starts the server. Resolves to what the server listens on,
+   or to `{:error/message …}` for a start that failed, which leaves no server."
   [_dispatch! {server-name :server/name :server/keys [host request-port instance-slug]}]
   (let [{:mcp/keys [on-request on-log] :as config} (config-of server-name)
         port-file-uri (vscode/Uri.file (port-file/primary-path config server-name instance-slug))]
     (try
+      (wrapper-install/ensure-installed! config)
       (let [started (await (server/start-server!+ {:server/host host
                                                    :server/request-port request-port
                                                    :server/port-file-uri port-file-uri
@@ -204,7 +201,6 @@
 (def effects
   {:lifecycle/fx.return #'return
    :lifecycle/fx.report-server-state #'report-server-state
-   :lifecycle/fx.install-wrapper #'install-wrapper
    :lifecycle/fx.start-server #'start-server
    :lifecycle/fx.wait-until-ready #'wait-until-ready
    :lifecycle/fx.register-with-cursor #'register-with-cursor

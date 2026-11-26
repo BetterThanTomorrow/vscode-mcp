@@ -10,7 +10,6 @@
 (def ^:private effect-names
   [:lifecycle/fx.return
    :lifecycle/fx.report-server-state
-   :lifecycle/fx.install-wrapper
    :lifecycle/fx.start-server
    :lifecycle/fx.wait-until-ready
    :lifecycle/fx.register-with-cursor
@@ -99,8 +98,7 @@
         resolved (await (dispatch+ system [:lifecycle/ax.start facts]))]
     (is (= running resolved)
         "The start resolves to the running server's state")
-    (is (= [:lifecycle/fx.install-wrapper
-            :lifecycle/fx.start-server
+    (is (= [:lifecycle/fx.start-server
             :lifecycle/fx.wait-until-ready
             :lifecycle/fx.registry-started
             :lifecycle/fx.show-start-message]
@@ -119,8 +117,7 @@
         resolved (await (dispatch+ system [:lifecycle/ax.start (assoc in-cursor :mcp/eca-available? true)]))]
     (is (= (assoc running :lifecycle/registered-name "my-server-ws-abc-g0") resolved)
         "The server has its name in Cursor")
-    (is (= [:lifecycle/fx.install-wrapper
-            :lifecycle/fx.start-server
+    (is (= [:lifecycle/fx.start-server
             :lifecycle/fx.wait-until-ready
             :lifecycle/fx.register-with-cursor
             :lifecycle/fx.register-with-eca
@@ -135,7 +132,7 @@
         resolved (await (dispatch+ system [:lifecycle/ax.start in-cursor]))]
     (is (= failed resolved)
         "The start resolves to the state with the error")
-    (is (= [:lifecycle/fx.install-wrapper :lifecycle/fx.start-server] @!performed)
+    (is (= [:lifecycle/fx.start-server] @!performed)
         "Nothing is registered, written or shown, and nothing is torn down")
     (is (= failed (lifecycle-axs/server-state @!state "my-server")))
     (let [again (test-system {:lifecycle/fx.start-server started
@@ -144,7 +141,7 @@
       (is (= running (await (dispatch+ again [:lifecycle/ax.start facts])))
           "A start after it starts one server, without the error"))))
 
-(deftest ^:async a-registration-at-start-that-throws
+(deftest ^:async a-registration-at-start-that-fails
   (let [{:keys [!performed] :as system} (test-system {:lifecycle/fx.start-server started
                                                        :lifecycle/fx.wait-until-ready true
                                                        :lifecycle/fx.register-with-cursor {:ok false
@@ -179,7 +176,14 @@
     (is (= 1 (get-in @!state ["my-server" :lifecycle/generation])))
     (is (= "my-server-ws-abc-g1"
            (:lifecycle/registered-name (await (dispatch+ system [:lifecycle/ax.start in-cursor]))))
-        "The next start registers under the next generation's name")))
+        "The next start registers under the next generation's name")
+    (is (= "my-server-ws-abc-g2"
+           (:lifecycle/registered-name (await (dispatch+ system [:lifecycle/ax.register-with-cursor in-cursor]))))
+        "A registration on request of the registered server takes the generation after that")
+    (await (dispatch+ system [:lifecycle/ax.stop in-cursor]))
+    (is (= "my-server-ws-abc-g3"
+           (:lifecycle/registered-name (await (dispatch+ system [:lifecycle/ax.start in-cursor]))))
+        "and the start after a stop the one after that, so Cursor never sees a name twice")))
 
 (deftest ^:async a-stop-where-the-unregistration-fails
   (let [{:keys [!performed !state] :as system} (test-system {:lifecycle/fx.start-server started
@@ -205,8 +209,7 @@
         resolved (await (dispatch+ system [:lifecycle/ax.register-with-cursor in-cursor]))]
     (is (= (assoc running :lifecycle/registered-name "my-server-ws-abc-g0") resolved)
         "It resolves to the state of the server it started, registered")
-    (is (= [:lifecycle/fx.install-wrapper
-            :lifecycle/fx.start-server
+    (is (= [:lifecycle/fx.start-server
             :lifecycle/fx.wait-until-ready
             :lifecycle/fx.registry-started
             :lifecycle/fx.register-with-cursor]
@@ -232,7 +235,6 @@
     (is (= running (await (dispatch+ system [:lifecycle/ax.maybe-start (assoc facts :mcp/auto-start? true)])))
         "With the setting on, it resolves to the running server's state")
     (is (= [:lifecycle/fx.sweep-port-files
-            :lifecycle/fx.install-wrapper
             :lifecycle/fx.start-server
             :lifecycle/fx.wait-until-ready
             :lifecycle/fx.registry-started]
