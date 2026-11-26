@@ -214,25 +214,6 @@
           (catch js/Error e
             (do-log options :error "[Server] Error sending notification:" (.-message e))))))))
 
-(defn start-server!+
-  "Creates a socket server and writes the port to a file if port-file-uri is provided.
-   Returns a promise that resolves to a map with server info when the MCP server starts successfully."
-  [{:server/keys [host port-file-uri] :as options}]
-  (let [server-host (require-server-host! host)
-        runtime-options (merge options
-                               {:server/host server-host
-                                :server/active-sockets (atom #{})
-                                :server/socket-id-counter (atom 0)})]
-    (p/let [server-info+ (start-socket-server!+ runtime-options)
-            assigned-port (:server/assigned-port server-info+)]
-      (if port-file-uri
-        (p/then (write-port-file!+ runtime-options port-file-uri assigned-port)
-                (fn [_]
-                  (server-info/merge-started-server-info runtime-options server-info+
-                                                         {:server/host server-host :server/port-file-uri port-file-uri})))
-        (server-info/merge-started-server-info runtime-options server-info+
-                                               {:server/host server-host})))))
-
 (defn- close-server!+ [{:server/keys [active-sockets instance] :as options}]
   (do-log options :info "Stopping socket server...")
   (-> (p/create
@@ -257,6 +238,30 @@
                        (resolve-fn true)))))))
       (p/catch (fn [err2]
                  (do-log options :error "[Server] Error stopping socket server:" err2)))))
+
+(defn start-server!+
+  "Creates a socket server and writes the port to a file if port-file-uri is provided.
+   Returns a promise that resolves to a map with server info when the MCP server starts successfully."
+  [{:server/keys [host port-file-uri] :as options}]
+  (let [server-host (require-server-host! host)
+        runtime-options (merge options
+                               {:server/host server-host
+                                :server/active-sockets (atom #{})
+                                :server/socket-id-counter (atom 0)})]
+    (p/let [server-info+ (start-socket-server!+ runtime-options)
+            assigned-port (:server/assigned-port server-info+)]
+      (if port-file-uri
+        (-> (write-port-file!+ runtime-options port-file-uri assigned-port)
+            (p/then (fn [_]
+                      (server-info/merge-started-server-info runtime-options server-info+
+                                                             {:server/host server-host :server/port-file-uri port-file-uri})))
+            ;; A server whose port file can't be written is closed, so a failed start leaves none
+            (p/catch (fn [e]
+                       (p/then (close-server!+ (merge runtime-options server-info+))
+                               (fn [_]
+                                 (p/rejected e))))))
+        (server-info/merge-started-server-info runtime-options server-info+
+                                               {:server/host server-host})))))
 
 (defn stop-server!+
   "Stops the MCP server and removes the port file.

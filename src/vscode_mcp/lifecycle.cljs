@@ -4,26 +4,6 @@
    [vscode-mcp.cursor-config :as cursor-config]
    [vscode-mcp.stdio-config :as stdio-config]))
 
-(defn init-state
-  []
-  {:lifecycle/server-info nil
-   :lifecycle/registered-name nil
-   :lifecycle/generation 0
-   :lifecycle/starting? false
-   :lifecycle/stopping? false})
-
-(defn running?
-  [state]
-  (boolean (:lifecycle/server-info state)))
-
-(defn server-info
-  [state]
-  (:lifecycle/server-info state))
-
-(defn cursor-registered?
-  [state]
-  (some? (:lifecycle/registered-name state)))
-
 (defn create-config
   "Returns the config for `opts`, with the defaults for what `opts` leaves out.
    `:server/name` names the server, and `:wrapper/script-relative-path` is the stdio
@@ -51,36 +31,12 @@
    :lifecycle/registered-name nil
    :lifecycle/registration-error nil})
 
-(defn server-facts
-  "Returns what the lifecycle `state` says about the server, as plain data: whether it
-   runs, where it listens, its window's slug, its port file, and its name in Cursor."
-  [state]
-  (let [{:server/keys [host assigned-port instance-slug port-file-uri]} (server-info state)]
-    {:server/running? (running? state)
-     :server/host host
-     :server/assigned-port assigned-port
-     :server/instance-slug instance-slug
-     :server/port-file-path (some-> port-file-uri (unchecked-get "fsPath"))
-     :lifecycle/registered-name (:lifecycle/registered-name state)}))
-
 (defn registration-error
   "Returns what a Cursor registration `failure` is in the server's state: its reason,
    and the message of what it threw when it threw."
-  [{:keys [reason error]}]
+  [{:keys [reason message]}]
   (cond-> {:reason (or reason :registration-failed)}
-    error (assoc :message (or (ex-message error) (str error)))))
-
-(defn changed-server-state
-  "Returns the server's `state` with `changes` in it. A server that begins to start has
-   no error from an earlier start, and none from an earlier registration."
-  [state changes]
-  (cond-> (merge state changes)
-    (:server/starting? changes) (assoc :server/error nil
-                                       :lifecycle/registration-error nil)))
-
-(defn port-file-present?
-  [server-info]
-  (boolean (seq (some-> server-info :server/port-file-uri (unchecked-get "fsPath")))))
+    message (assoc :message message)))
 
 (defn registration-intent
   "Pure plan for the next registerServer call. When already registered, the
