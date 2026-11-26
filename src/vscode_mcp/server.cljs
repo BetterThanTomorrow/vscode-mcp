@@ -14,7 +14,6 @@
    ["net" :as net]
    ["vscode" :as vscode]
    [clojure.string :as string]
-   [promesa.core :as p]
    [vscode-mcp.server-info :as server-info]))
 
 (defn- require-server-host!
@@ -28,40 +27,36 @@
   (when on-log
     (apply on-log level args)))
 
-(defn write-port-file!+
+(defn ^:async write-port-file!+
   "Creates parent dirs and writes `assigned-port` to `port-file-uri`."
   [options ^js port-file-uri assigned-port]
-  (p/do!
-   (let [port-file-dir (vscode/Uri.joinPath port-file-uri "..")]
-     (vscode/workspace.fs.createDirectory port-file-dir))
-   (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str assigned-port)))
-   (do-log options :info "Wrote port file:" (.-fsPath port-file-uri))))
+  (await (vscode/workspace.fs.createDirectory (vscode/Uri.joinPath port-file-uri "..")))
+  (await (.writeFile vscode/workspace.fs port-file-uri (js/Buffer.from (str assigned-port))))
+  (do-log options :info "Wrote port file:" (.-fsPath port-file-uri)))
 
-(defn delete-port-file!+ [options ^js port-file-uri]
-  (p/create
-   (fn [resolve-fn _reject]
-     (if-not port-file-uri
-       (resolve-fn true)
-       (-> (vscode/workspace.fs.delete port-file-uri #js {:recursive false, :useTrash false})
-           (p/then (fn [_]
-                     (do-log options :info "[Server] Deleted port file:" (.-fsPath port-file-uri))
-                     (resolve-fn true)))
-           (p/catch (fn [err]
-                      (do-log options :error "[Server] Could not delete port file with VS Code API:" err (.-message err))
-                      ;; Probably VS Code API unavailable during shutdown - try Node fs fallback
-                      (try
-                        (let [fs-path (.-fsPath port-file-uri)]
-                          (if (.existsSync fs fs-path)
-                            (do
-                              (.unlinkSync fs fs-path)
-                              (do-log options :info "[Server] Deleted port file with fs fallback:" fs-path)
-                              (resolve-fn true))
-                            (do
-                              (do-log options :debug "[Server] Port file already gone (fs fallback check)")
-                              (resolve-fn true))))
-                        (catch js/Error fs-err
-                          (do-log options :warn "[Server] Could not delete port file with fallback either:" fs-err (.-message fs-err))
-                          (resolve-fn true))))))))))
+(defn ^:async delete-port-file!+ [options ^js port-file-uri]
+  (if-not port-file-uri
+    true
+    (try
+      (await (vscode/workspace.fs.delete port-file-uri #js {:recursive false, :useTrash false}))
+      (do-log options :info "[Server] Deleted port file:" (.-fsPath port-file-uri))
+      true
+      (catch :default err
+        (do-log options :error "[Server] Could not delete port file with VS Code API:" err (.-message err))
+        ;; Probably VS Code API unavailable during shutdown - try Node fs fallback
+        (try
+          (let [fs-path (.-fsPath port-file-uri)]
+            (if (.existsSync fs fs-path)
+              (do
+                (.unlinkSync fs fs-path)
+                (do-log options :info "[Server] Deleted port file with fs fallback:" fs-path)
+                true)
+              (do
+                (do-log options :debug "[Server] Port file already gone (fs fallback check)")
+                true)))
+          (catch js/Error fs-err
+            (do-log options :warn "[Server] Could not delete port file with fallback either:" fs-err (.-message fs-err))
+            true))))))
 
 (defn- split-buffer-on-newline [buffer]
   (let [lines (string/split buffer #"\n")]
@@ -171,7 +166,7 @@
                   (do-log options :error "[Server] Socket error:" socket-id peer-label err)))))))
 
 (defn- start-socket-server!+ [{:server/keys [request-port host] :as options}]
-  (p/create
+  (js/Promise.
    (fn [resolve-fn reject]
      (try
        (let [server (.createServer
@@ -216,7 +211,7 @@
 
 (defn- close-server!+ [{:server/keys [active-sockets instance] :as options}]
   (do-log options :info "Stopping socket server...")
-  (-> (p/create
+  (-> (js/Promise.
        (fn [resolve-fn reject]
          (when (seq @active-sockets)
            (do-log options :info "Closing all active socket connections (" (count @active-sockets) ")...")
@@ -236,10 +231,10 @@
                      (do
                        (do-log options :info "Socket server stopped.")
                        (resolve-fn true)))))))
-      (p/catch (fn [err2]
-                 (do-log options :error "[Server] Error stopping socket server:" err2)))))
+      (.catch (fn [err2]
+                (do-log options :error "[Server] Error stopping socket server:" err2)))))
 
-(defn start-server!+
+(defn ^:async start-server!+
   "Creates a socket server and writes the port to a file if port-file-uri is provided.
    Returns a promise that resolves to a map with server info when the MCP server starts successfully."
   [{:server/keys [host port-file-uri] :as options}]
@@ -247,35 +242,34 @@
         runtime-options (merge options
                                {:server/host server-host
                                 :server/active-sockets (atom #{})
-                                :server/socket-id-counter (atom 0)})]
-    (p/let [server-info+ (start-socket-server!+ runtime-options)
-            assigned-port (:server/assigned-port server-info+)]
-      (if port-file-uri
-        (-> (write-port-file!+ runtime-options port-file-uri assigned-port)
-            (p/then (fn [_]
-                      (server-info/merge-started-server-info runtime-options server-info+
-                                                             {:server/host server-host :server/port-file-uri port-file-uri})))
-            ;; A server whose port file can't be written is closed, so a failed start leaves none
-            (p/catch (fn [e]
-                       (p/then (close-server!+ (merge runtime-options server-info+))
-                               (fn [_]
-                                 (p/rejected e))))))
+                                :server/socket-id-counter (atom 0)})
+        server-info+ (await (start-socket-server!+ runtime-options))
+        assigned-port (:server/assigned-port server-info+)]
+    (if port-file-uri
+      (try
+        (await (write-port-file!+ runtime-options port-file-uri assigned-port))
         (server-info/merge-started-server-info runtime-options server-info+
-                                               {:server/host server-host})))))
+                                               {:server/host server-host :server/port-file-uri port-file-uri})
+        ;; A server whose port file can't be written is closed, so a failed start leaves none
+        (catch :default e
+          (await (close-server!+ (merge runtime-options server-info+)))
+          (throw e)))
+      (server-info/merge-started-server-info runtime-options server-info+
+                                             {:server/host server-host}))))
 
-(defn stop-server!+
+(defn ^:async stop-server!+
   "Stops the MCP server and removes the port file.
    Returns a promise that resolves to a boolean indicating success."
   [{:server/keys [instance port-file-uri] :as options}]
   (if-not instance
     (do
       (do-log options :info "No server instance provided to stop.")
-      (p/resolved false))
-    (-> (close-server!+ options)
-        (p/then (fn [_]
-                  (when port-file-uri
-                    (delete-port-file!+ options port-file-uri))))
-        (p/then (fn [_] true))
-        (p/catch (fn [err]
-                   (do-log options :error "[Server] Error during server shutdown:" err)
-                   false)))))
+      false)
+    (try
+      (await (close-server!+ options))
+      (when port-file-uri
+        (await (delete-port-file!+ options port-file-uri)))
+      true
+      (catch :default err
+        (do-log options :error "[Server] Error during server shutdown:" err)
+        false))))

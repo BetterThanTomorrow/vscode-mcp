@@ -10,7 +10,6 @@
    ["os" :as os]
    ["path" :as path]
    [clojure.string :as string]
-   [promesa.core :as p]
    [vscode-mcp.registry :as registry]
    [vscode-mcp.stdio-config :as stdio-config]))
 
@@ -57,7 +56,7 @@
 (defn- port-accepting?+
   "Resolves true when `host`:`port` accepts a TCP connection within 200ms."
   [host port]
-  (p/create
+  (js/Promise.
    (fn [resolve-fn _reject]
      (let [socket (net/connect #js {:host host :port port})
            done? (atom false)
@@ -70,28 +69,26 @@
        (.once socket "timeout" #(finish! false))
        (.once socket "error" #(finish! false))))))
 
-(defn- sweep-one!+
+(defn- ^:async sweep-one!+
   [file-path host]
   (if-let [port (parse-port-digits file-path)]
-    (p/then (port-accepting?+ host port)
-            (fn [ok?]
-              (when-not ok?
-                (unlink-quiet! file-path))
-              (not ok?)))
+    (let [ok? (await (port-accepting?+ host port))]
+      (when-not ok?
+        (unlink-quiet! file-path))
+      (not ok?))
     (do (unlink-quiet! file-path)
-        (p/resolved true))))
+        true)))
 
-(defn sweep-stale!+
+(defn ^:async sweep-stale!+
   "Deletes `.port` files in `dir` whose port is not accepting (or content is invalid).
    Missing `dir` is a no-op. Returns a promise of deleted count."
   ([dir]
-   (sweep-stale!+ dir stdio-config/default-host))
+   (await (sweep-stale!+ dir stdio-config/default-host)))
   ([dir host]
    (if-not (fs/existsSync dir)
-     (p/resolved 0)
+     0
      (let [paths (->> (array-seq (fs/readdirSync dir))
                       (filter #(re-find #"\.port$" %))
-                      (map #(path/join dir %)))]
-       (p/then (p/all (mapv #(sweep-one!+ % host) paths))
-               (fn [results]
-                 (count (filter true? results))))))))
+                      (map #(path/join dir %)))
+           results (await (js/Promise.all (into-array (mapv #(sweep-one!+ % host) paths))))]
+       (count (filter true? results))))))
