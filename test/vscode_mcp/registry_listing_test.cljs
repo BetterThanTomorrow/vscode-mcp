@@ -4,7 +4,6 @@
    ["os" :as os]
    ["path" :as path]
    [cljs.test :refer [deftest is testing]]
-   [promesa.core :as p]
    [vscode-mcp.registry-listing :as sut]
    [vscode-mcp.registry-listing-stubs :as stubs]))
 
@@ -47,11 +46,11 @@
    ["scripts/mcp.clj" "(ns mcp)\n"]
    ["scripts/mcp_briefing.clj" "(ns mcp-briefing)\n"]])
 
-(defn- install-with-fetch!+
+(defn- ^:async install-with-fetch!+
   [root fetch-fn]
   (let [config (listing-config root {})]
     (reset! sut/!fetch-override!+ fetch-fn)
-    (p/let [result (sut/maybe-install!+ config)]
+    (let [result (await (sut/maybe-install!+ config))]
       {:result result
        :home (sut/registry-home config)})))
 
@@ -90,12 +89,12 @@
   (let [ok-root (tmp-root)
         fail-root (tmp-root)]
     (try
-      (let [{:keys [result home]} (await (install-with-fetch!+ ok-root #(p/resolved (github-files))))]
+      (let [{:keys [result home]} (await (install-with-fetch!+ ok-root #(js/Promise.resolve (github-files))))]
         (is (= :github result))
         (is (= "github-readme\n" (fs/readFileSync (path/join home "README.md") "utf8")))
         (is (fs/existsSync (path/join home "bb.edn"))))
       (reset! sut/!install-ok? false)
-      (let [{:keys [result home]} (await (install-with-fetch!+ fail-root #(p/rejected (js/Error. "offline"))))]
+      (let [{:keys [result home]} (await (install-with-fetch!+ fail-root #(js/Promise.reject (js/Error. "offline"))))]
         (is (= :github-failed result))
         (is (= stubs/readme (fs/readFileSync (path/join home "README.md") "utf8")))
         (is (= stubs/agents (fs/readFileSync (path/join home "AGENTS.md") "utf8")))
@@ -111,7 +110,7 @@
     (fs/mkdirSync home #js {:recursive true})
     (fs/writeFileSync (path/join home "README.md") "real-readme\n")
     (fs/writeFileSync (path/join home "bb.edn") "{:paths [\"scripts\"]}\n")
-    (reset! sut/!fetch-override!+ (fn [] (p/rejected (js/Error. "offline"))))
+    (reset! sut/!fetch-override!+ (fn [] (js/Promise.reject (js/Error. "offline"))))
     (try
       (let [result (await (sut/maybe-install!+ config))]
         (is (= :github-failed result))
@@ -127,7 +126,7 @@
     (write-sibling-tree! root)
     (reset! sut/!fetch-override!+ (fn []
                                     (swap! calls inc)
-                                    (p/rejected (js/Error. "should-not-run"))))
+                                    (js/Promise.reject (js/Error. "should-not-run"))))
     (try
       (await (sut/maybe-install!+ config))
       (let [result (await (sut/maybe-install!+ config))]
@@ -144,8 +143,8 @@
     (reset! sut/!fetch-override!+ (fn []
                                     (swap! calls inc)
                                     (if (= 1 @calls)
-                                      (p/rejected (js/Error. "offline"))
-                                      (p/resolved (github-files)))))
+                                      (js/Promise.reject (js/Error. "offline"))
+                                      (js/Promise.resolve (github-files)))))
     (try
       (let [result (await (sut/maybe-install!+ config))]
         (is (= :github-failed result)))

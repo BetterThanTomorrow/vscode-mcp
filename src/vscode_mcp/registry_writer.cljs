@@ -4,7 +4,6 @@
    and each write is synchronous. The timers are kept apart from the data. A timer that
    fires after the server stopped finds no entry, and writes nothing."
   (:require
-   [promesa.core :as p]
    [vscode-mcp.mcp-media :as mcp-media]
    [vscode-mcp.registry :as registry]
    [vscode-mcp.registry-listing :as listing]))
@@ -87,7 +86,7 @@
   (if-not (and (:registry/enabled? config)
                (:server/name config)
                (:server/instance-slug server-info))
-    (p/resolved nil)
+    (js/Promise.resolve nil)
     (let [key (writer-key config server-info)]
       (clear-timers! key)
       (registry/sweep-dead-pid-files! (registry/registry-dir config))
@@ -103,7 +102,7 @@
       (listing/maybe-install!+ config)
       (mcp-media/on-started! {:config config :server-info server-info})
       (write-entry! key)
-      (p/resolved nil))))
+      (js/Promise.resolve nil))))
 
 (defn on-stopping!
   "Forgets the server's entry and clears its timers, so nothing writes it again."
@@ -132,4 +131,4 @@
     (when-let [key (find-key (:server/name config))]
       (swap! !entries assoc-in [key :registry/custom-data] (custom-data config))
       (schedule-write! key config)))
-  (p/resolved nil))
+  (js/Promise.resolve nil))

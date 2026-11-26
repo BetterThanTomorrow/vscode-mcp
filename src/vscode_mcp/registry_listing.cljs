@@ -3,7 +3,6 @@
   (:require
    ["fs" :as fs]
    ["path" :as path]
-   [promesa.core :as p]
    [vscode-mcp.registry :as registry]
    [vscode-mcp.registry-listing-stubs :as stubs]))
 
@@ -77,39 +76,45 @@
   (when-let [on-log (:mcp/on-log config)]
     (apply on-log :warn args)))
 
-(defn fetch-text!+
+(defn ^:async fetch-text!+
   [url]
   (let [ctrl (js/AbortController.)
         timer (js/setTimeout #(.abort ctrl) fetch-timeout-ms)
         opts (js-obj "signal" (.-signal ctrl))]
-    (-> (p/let [res (js/fetch url opts)]
-          (if (.-ok res)
-            (.text res)
-            (throw (ex-info "registry listing fetch failed"
-                            {:url url :status (.-status res)}))))
-        (p/finally (fn [] (js/clearTimeout timer))))))
+    (try
+      (let [res (await (js/fetch url opts))]
+        (if (.-ok res)
+          (await (.text res))
+          (throw (ex-info "registry listing fetch failed"
+                          {:url url :status (.-status res)}))))
+      (finally
+        (js/clearTimeout timer)))))
 
 (defn fetch-github-files!+
   []
   (if-let [f @!fetch-override!+]
     (f)
-    (p/all
-     (mapv (fn [rel]
-             (p/let [text (fetch-text!+ (str github-base rel))]
-               [rel text]))
-           consumer-files))))
+    (-> (js/Promise.all
+         (into-array
+          (mapv (fn [rel]
+                  (.then (fetch-text!+ (str github-base rel))
+                         (fn [text]
+                           [rel text])))
+                consumer-files)))
+        (.then vec))))
 
-(defn install-from-github!+
+(defn ^:async install-from-github!+
   [config home]
-  (-> (p/let [files (fetch-github-files!+)]
-        (write-files! home files)
-        (reset! !install-ok? true)
-        :github)
-      (p/catch (fn [err]
-                 (log-warn config "[MCP] registry listing GitHub fetch failed:" err)
-                 (when-not (listing-usable? home)
-                   (write-stubs! home))
-                 :github-failed))))
+  (try
+    (let [files (await (fetch-github-files!+))]
+      (write-files! home files)
+      (reset! !install-ok? true)
+      :github)
+    (catch :default err
+      (log-warn config "[MCP] registry listing GitHub fetch failed:" err)
+      (when-not (listing-usable? home)
+        (write-stubs! home))
+      :github-failed)))
 
 (defn copy-sibling!
   [src-dir home]
@@ -127,27 +132,28 @@
         sibling (sibling-content-dir config)]
     (cond
       (not (:vscode/extension-context config))
-      (p/resolved :skipped-no-context)
+      (js/Promise.resolve :skipped-no-context)
 
       (and js/goog.DEBUG (sibling-usable? sibling))
-      (-> (p/resolved nil)
-          (p/then (fn [_] (copy-sibling! sibling home))))
+      (.then (js/Promise.resolve nil)
+             (fn [_] (copy-sibling! sibling home)))
 
       :else
       (install-from-github!+ config home))))
 
-(defn maybe-install!+
+(defn ^:async maybe-install!+
   "Fire-and-forget from on-started. Skips after a successful install this session."
   [config]
   (cond
     (not (:registry/enabled? config))
-    (p/resolved :skipped)
+    :skipped
 
     @!install-ok?
-    (p/resolved :skipped)
+    :skipped
 
     :else
-    (-> (install!+ config)
-        (p/catch (fn [err]
-                   (log-warn config "[MCP] registry listing install failed:" err)
-                   :failed)))))
+    (try
+      (await (install!+ config))
+      (catch :default err
+        (log-warn config "[MCP] registry listing install failed:" err)
+        :failed))))

@@ -4,7 +4,6 @@
    ["os" :as os]
    ["path" :as path]
    [cljs.test :refer [deftest is]]
-   [promesa.core :as p]
    [vscode-mcp.registry-writer :as sut]))
 
 (defn- tmp-dir []
@@ -41,8 +40,8 @@
                :keywordize-keys true))))
 
 (defn- delay+ [ms]
-  (p/create (fn [resolve]
-              (js/setTimeout resolve ms))))
+  (js/Promise. (fn [resolve]
+                (js/setTimeout resolve ms))))
 
 (defn- cleanup! [dir]
   (sut/clear-writers!)
