@@ -4,6 +4,7 @@
    ["os" :as os]
    ["path" :as path]
    [cljs.test :refer [deftest is testing]]
+   [clojure.string :as string]
    [vscode-mcp.skills-install :as sut]))
 
 (defn- temp-dir []
@@ -139,7 +140,7 @@
       (let [home (path/join root "skills")
             manifest (assoc (fixture-manifest! root "my-ext" two-skills) :skills/dir home :skills/link? true)]
         (doseq [blank [nil "" "  "]]
-          (is (= {:skills/installed [] :skills/removed [] :skills/failures []}
+          (is (= {:skills/installed [] :skills/removed [] :skills/failures [] :skills/cleanup-failures []}
                  (sut/install! (assoc manifest :manifest/name blank)))
               (str "Installs nothing for " (pr-str blank))))
         (is (not (fs/existsSync home))
@@ -196,10 +197,124 @@
                                                             (swap! !logged conj args))}
                                              true)]
         (is (= [] (:skills/installed result)))
-        (is (= 1 (count (:skills/failures result)))
+        (is (= [[:skills/step.ensure-dir (path/join not-a-folder "my-ext")]]
+               (map :skills/step (:skills/failures result)))
             "Stops at the folder it can't make")
         (is (= :warn (ffirst @!logged))
             "Logs the failure")))))
+
+;; A step performer for `perform!` that throws for the steps in `failing`, and records
+;; the others in `!performed`.
+(defn- performer [!performed failing]
+  (fn [plan-step]
+    (if (contains? failing plan-step)
+      (throw (js/Error. "Failed"))
+      (swap! !performed conj plan-step))
+    nil))
+
+(deftest a-failed-remove-leaves-the-later-removes-to-run
+  (let [!performed (atom [])
+        plan [[:skills/step.ensure-dir "/skills/my-ext"]
+              [:skills/step.remove "/skills/my-ext/gone"]
+              [:skills/step.remove "/skills/my-ext/also-gone"]
+              [:skills/step.remove-leftover "/skills/my-ext/.alpha.installing-x"]
+              [:skills/step.remove-leftover "/skills/my-ext/.beta.installing-y"]]
+        result (sut/perform! (performer !performed #{(nth plan 1) (nth plan 3)}) plan)]
+    (is (= [(nth plan 0) (nth plan 2) (nth plan 4)] @!performed)
+        "A remove after one that failed runs")
+    (is (= ["/skills/my-ext/also-gone" "/skills/my-ext/.beta.installing-y"] (:skills/removed result)))
+    (is (= [(nth plan 1)] (map :skills/step (:skills/failures result))))
+    (is (= [(nth plan 3)] (map :skills/step (:skills/cleanup-failures result)))
+        "A leftover that can't be removed is a cleanup failure, apart from the install's")))
+
+(deftest a-skill-whose-stage-failed-is-skipped
+  (let [!performed (atom [])
+        plan [[:skills/step.ensure-dir "/skills/my-ext"]
+              [:skills/step.stage "/ext/alpha" "/skills/my-ext/.alpha.t" true]
+              [:skills/step.put-in-place "/skills/my-ext/.alpha.t" "/skills/my-ext/alpha"]
+              [:skills/step.stage "/ext/beta" "/skills/my-ext/.beta.t" true]
+              [:skills/step.put-in-place "/skills/my-ext/.beta.t" "/skills/my-ext/beta"]
+              [:skills/step.remove "/skills/my-ext/gone"]]
+        result (sut/perform! (performer !performed #{(nth plan 1)}) plan)]
+    (is (= [(nth plan 0) (nth plan 3) (nth plan 4) (nth plan 5)] @!performed)
+        "The skill whose stage failed isn't put in place, and the other skill and the remove are done")
+    (is (= ["/skills/my-ext/beta"] (:skills/installed result)))
+    (is (= [(nth plan 1)] (map :skills/step (:skills/failures result))))))
+
+(deftest install-removes-what-installs-left-behind
+  (with-temp-dir
+    (fn [root]
+      (let [home (path/join root "skills")
+            manifest (assoc (fixture-manifest! root "my-ext" two-skills) :skills/dir home :skills/link? false)
+            extension-dir (path/join home "my-ext")
+            leftovers [".alpha.installing-1234" ".alpha.installing-5678.old" ".gone.installing-9"]]
+        (sut/install! manifest)
+        (doseq [leftover leftovers]
+          (fs/mkdirSync (path/join extension-dir leftover) #js {:recursive true}))
+        (fs/writeFileSync (path/join extension-dir ".alpha.installing-1234" "SKILL.md") "Partial")
+        (fs/symlinkSync (path/join root "extension" "skills" "beta") (path/join extension-dir ".beta.installing-42") "junction")
+        (fs/writeFileSync (path/join extension-dir ".DS_Store") "")
+        (testing "An install in progress, a minute or less ago, is left"
+          (is (= [] (:skills/removed (sut/install! manifest))))
+          (is (= 5 (count (filter #(string/starts-with? % ".") (entries extension-dir))))))
+        (testing "Older ones are removed, a link by unlinking it"
+          (let [result (sut/install! (assoc manifest :skills/now (+ (js/Date.now) 120000)))]
+            (is (= #{"alpha" "beta" ".DS_Store"} (entries extension-dir))
+                "Leaves the skills and what isn't an install's")
+            (is (= 4 (count (:skills/removed result))))
+            (is (= [] (:skills/cleanup-failures result)))
+            (is (= (skill-md "beta") (read-text (path/join root "extension" "skills" "beta" "SKILL.md")))
+                "Leaves what a left behind link pointed at")))))))
+
+(deftest install-leaves-the-entries-of-a-linked-extension-folder
+  (with-temp-dir
+    (fn [root]
+      (let [home (path/join root "skills")
+            elsewhere (path/join root "elsewhere")
+            manifest (assoc (fixture-manifest! root "my-ext" two-skills) :skills/dir home :skills/link? true)]
+        (fs/mkdirSync (path/join elsewhere "my-own-skill") #js {:recursive true})
+        (fs/mkdirSync home)
+        (fs/symlinkSync elsewhere (path/join home "my-ext") "junction")
+        (let [result (sut/install! manifest)]
+          (is (= 2 (count (:skills/installed result))))
+          (is (= [] (:skills/removed result)))
+          (is (= #{"alpha" "beta" "my-own-skill"} (entries elsewhere))
+              "Installs the skills, and leaves the folder's other entries"))))))
+
+(deftest a-failed-removal-of-the-old-skill-is-a-cleanup-failure
+  ;; A folder that can't be removed takes a read-only folder, which Windows doesn't have.
+  (when-not (= "win32" js/process.platform)
+    (with-temp-dir
+      (fn [root]
+        (let [home (path/join root "skills")
+              manifest (assoc (fixture-manifest! root "my-ext" two-skills) :skills/dir home :skills/link? false)
+              old-references (path/join home "my-ext" "alpha" "references")
+              !logged (atom [])]
+          (sut/install! manifest)
+          (fs/chmodSync old-references 0555)
+          (try
+            (let [{:manifest/keys [extension-path skills]} manifest
+                  context #js {:extensionPath extension-path
+                               :extension #js {:packageJSON #js {:name "my-ext"
+                                                                 :contributes #js {:chatSkills (clj->js skills)}}}}
+                  result (sut/install-from-config! {:vscode/extension-context context
+                                                    :skills/dir home
+                                                    :mcp/on-log (fn [& args]
+                                                                  (swap! !logged conj args))}
+                                                   false)]
+              (is (= 2 (count (:skills/installed result))))
+              (is (= [] (:skills/failures result))
+                  "The install succeeded")
+              (is (= 1 (count (:skills/cleanup-failures result)))
+                  "The old skill that couldn't be removed is a cleanup failure")
+              (is (= ["[MCP] Skill install cleanup failed:"] (map second @!logged))
+                  "and is logged as one")
+              (is (= "Notes" (read-text (path/join home "my-ext" "alpha" "references" "notes.md")))))
+            (finally
+              (doseq [entry (fs/readdirSync (path/join home "my-ext"))]
+                (let [references (path/join home "my-ext" entry "references")]
+                  (when (fs/existsSync references)
+                    (fs/chmodSync references 0755)))))))))))
 
 (deftest install-from-config-installs-into-the-skills-dir
   (with-temp-dir
