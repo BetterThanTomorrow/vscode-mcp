@@ -129,6 +129,24 @@
         (str remote-address ":" remote-port)))
     (catch :default _ nil)))
 
+(defn- write-response!
+  "Writes `response` to `socket`, once it is resolved when it is a promise."
+  [options ^js socket response]
+  (if (thenable? response)
+    (.then (js/Promise.resolve response)
+           (fn [resolved-response]
+             ;; A request handler resolves to nil for what gets no answer
+             (when resolved-response
+               (do-log options :debug "[Server] Sending resolved response:" (pr-str resolved-response))
+               (.write socket (format-response-json resolved-response))))
+           (fn [err]
+             (do-log options :error "[Server] Error resolving response:" err)
+             (let [error-response (create-error-response nil -32603 (str "Internal error: " err))]
+               (.write socket (format-response-json error-response)))))
+    (do
+      (do-log options :debug "[Server] Sending response:" (pr-str response))
+      (.write socket (format-response-json response)))))
+
 (defn- setup-socket-handlers! [{:server/keys [active-sockets socket-id-counter] :as options} ^js socket]
   (let [socket-id (swap! socket-id-counter inc)
         peer-label (or (socket-peer-label socket) "unknown")]
@@ -143,27 +161,12 @@
     (let [buffer (volatile! "")]
       (.on socket "data"
            (fn [data-chunk]
-             (let [responses (handle-socket-data! options buffer data-chunk)]
-               (doseq [response responses]
-                 (when response
-                   (if (thenable? response)
-                     (.then (js/Promise.resolve response)
-                            (fn [resolved-response]
-                              ;; A request handler resolves to nil for what gets no answer
-                              (when resolved-response
-                                (do-log options :debug "[Server] Sending resolved response:" (pr-str resolved-response))
-                                (.write socket (format-response-json resolved-response))))
-                            (fn [err]
-                              (do-log options :error "[Server] Error resolving response:" err)
-                              (let [error-response (create-error-response nil -32603 (str "Internal error: " err))]
-                                (.write socket (format-response-json error-response)))))
-                     ;; Handle non-promise responses
-                     (do
-                       (do-log options :debug "[Server] Sending response:" (pr-str response))
-                       (.write socket (format-response-json response))))))))
-           (.on socket "error"
-                (fn [err]
-                  (do-log options :error "[Server] Socket error:" socket-id peer-label err)))))))
+             (doseq [response (handle-socket-data! options buffer data-chunk)]
+               (when response
+                 (write-response! options socket response)))))
+      (.on socket "error"
+           (fn [err]
+             (do-log options :error "[Server] Socket error:" socket-id peer-label err))))))
 
 (defn- start-socket-server!+ [{:server/keys [request-port host] :as options}]
   (js/Promise.

@@ -37,20 +37,21 @@
     (responses/error-response id -32602 not-found-message)))
 
 (defn- resolve-read-result+
-  [id manifest-data uri opts hook-result]
+  "The response to a read: the hook's result, or else the skill that `read-skill` returns."
+  [id read-skill hook-result]
   (cond
     (thenable? hook-result)
     (.then (js/Promise.resolve hook-result)
            (fn [result]
              (if result
                (responses/success-response id result)
-               (success-for-read id (skill-read-result manifest-data uri opts) "Resource not found"))))
+               (success-for-read id (read-skill) "Resource not found"))))
 
     hook-result
     (responses/success-response id hook-result)
 
     :else
-    (success-for-read id (skill-read-result manifest-data uri opts) "Resource not found")))
+    (success-for-read id (read-skill) "Resource not found")))
 
 (defn- deep-merge-capabilities
   [base overlay]
@@ -101,7 +102,9 @@
   (let [uri (:uri params)
         hook (:read-resource+ opts)]
     (if hook
-      (resolve-read-result+ id manifest-data uri opts (hook manifest-data uri opts))
+      (resolve-read-result+ id
+                            #(skill-read-result manifest-data uri opts)
+                            (hook manifest-data uri opts))
       (success-for-read id (skill-read-result manifest-data uri opts) "Resource not found"))))
 
 (defn handle-manifest-request

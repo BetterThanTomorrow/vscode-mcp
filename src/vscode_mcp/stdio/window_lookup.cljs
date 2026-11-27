@@ -25,13 +25,16 @@
                    [pid {:ppid ppid :created created}]))))
        (into {})))
 
+(defn- reused-pid?
+  "Whether a parent created at `parent-created` came after its child, created at `created`."
+  [created parent-created]
+  (boolean (and created parent-created (> parent-created created))))
+
 (defn- parent-of
   "Parent pid of `pid` in `table`. A parent created after its child is a reused pid, not the parent."
   [table pid]
-  (let [{:keys [ppid created]} (get table pid)
-        parent-created (get-in table [ppid :created])]
-    (when (and ppid
-               (not (and created parent-created (> parent-created created))))
+  (let [{:keys [ppid created]} (get table pid)]
+    (when-not (reused-pid? created (get-in table [ppid :created]))
       ppid)))
 
 (defn ancestry
@@ -258,15 +261,24 @@
     (when-not more
       entry)))
 
+(defn- caller-host?
+  "Whether `entry` is from the extension host with `extension-host-pid`, or there is no such pid to match."
+  [extension-host-pid entry]
+  (or (nil? extension-host-pid)
+      (= extension-host-pid (:pid entry))))
+
+(defn- window-entry?
+  "Whether `entry` is the wrapper's own server in the window `window-id`, under the caller's extension host."
+  [window-id script-name extension-host-pid entry]
+  (and (= window-id (:windowId entry))
+       (own-server? script-name entry)
+       (caller-host? extension-host-pid entry)))
+
 (defn- window-target
   [entries {:caller/keys [extension-host-pid] :as search} script-name]
   (when-let [window-id (caller-window-id entries search)]
     {:target/window-id window-id
-     :target/entry (some #(when (and (= window-id (:windowId %))
-                                     (own-server? script-name %)
-                                     (or (nil? extension-host-pid)
-                                         (= extension-host-pid (:pid %))))
-                            %)
+     :target/entry (some #(when (window-entry? window-id script-name extension-host-pid %) %)
                          entries)}))
 
 (defn target
